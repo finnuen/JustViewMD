@@ -74,7 +74,7 @@ namespace {
 constexpr wchar_t kAppName[]        = L"JustViewMD";
 constexpr wchar_t kWindowClass[]    = L"JustViewMD.MainWindow";
 constexpr wchar_t kUntitledName[]   = L"Untitled.md";
-constexpr wchar_t kAppVersion[]     = JVMD_VERSION_SHORT_WIDE;  // "1.0.0"
+constexpr wchar_t kAppVersion[]     = JVMD_VERSION_SHORT_WIDE;  // "1.0.1"
 
 // The WebView2 virtual host.  assets/ is mapped to https://app.local/ so the
 // front end behaves exactly like a web site while never touching the network.
@@ -4015,13 +4015,19 @@ void HandleWebMessage(const std::wstring& json) {
         } else {
             g_app.webEverLoaded = true;
             bool loaded = false;
+            // The session comes first, so that a file named on the command line
+            // joins the documents of the previous run instead of replacing them.
+            if (g_app.keepOpenedFiles) {
+                loaded = RestoreSessionTabs();
+            }
             if (!g_app.pendingOpenPath.empty()) {
                 const std::wstring path = g_app.pendingOpenPath;
                 g_app.pendingOpenPath.clear();
-                loaded = OpenPathInTab(path, true);
-            }
-            if (!loaded && g_app.keepOpenedFiles) {
-                loaded = RestoreSessionTabs();
+                // Appends a tab of its own, or activates the tab that already
+                // shows that file, and is the active tab either way.
+                if (OpenPathInTab(path, true)) {
+                    loaded = true;
+                }
             }
             if (!loaded) {
                 if (g_app.startBlank) {
@@ -4076,6 +4082,32 @@ void HandleWebMessage(const std::wstring& json) {
     }
     if (type == L"tabSelect") {
         ActivateTab(static_cast<int>(reader.GetNumber(L"index", g_app.activeTab)));
+        return;
+    }
+    if (type == L"tabReorder") {
+        // The page moved one tab in the strip (a drag).  Rotating the vector
+        // swaps whole entries without copying any document text, and keeps the
+        // two orders identical so that closing, "close others" and the session
+        // all still talk about the same tabs.
+        const int count = static_cast<int>(g_app.tabs.size());
+        const int from = static_cast<int>(reader.GetNumber(L"from", -1));
+        const int to = static_cast<int>(reader.GetNumber(L"to", -1));
+        if (count > 1 && from >= 0 && from < count && to >= 0 && to < count && from != to) {
+            if (from < to) {
+                std::rotate(g_app.tabs.begin() + from, g_app.tabs.begin() + from + 1,
+                            g_app.tabs.begin() + to + 1);
+            } else {
+                std::rotate(g_app.tabs.begin() + to, g_app.tabs.begin() + from,
+                            g_app.tabs.begin() + from + 1);
+            }
+            SaveSession();
+            DebugLog(L"Tab moved from " + std::to_wstring(from) + L" to " + std::to_wstring(to));
+        }
+        const int active = static_cast<int>(reader.GetNumber(L"active", g_app.activeTab));
+        if (active >= 0 && active < static_cast<int>(g_app.tabs.size())) {
+            g_app.activeTab = active;
+        }
+        UpdateWindowTitle();
         return;
     }
     if (type == L"tabClose") {

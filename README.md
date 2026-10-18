@@ -98,7 +98,8 @@ application, including its front end. Put it wherever you like and run it.
 **Tabs**
 
 * Several documents in one window, with `+` for a new empty tab and an `x` on
-  each tab (or a middle click) to close it.
+  each tab (or a middle click) to close it. Drag a tab sideways to move it
+  along the strip, and that order is the one the session restores.
 * New empty tabs are numbered as they appear - `Untitled.md`, `Untitled-2.md`,
   `Untitled-3.md` - and a number is reused once its tab is gone, so no two open
   tabs ever share a name. Saving keeps that name as the suggested file name.
@@ -169,9 +170,11 @@ application, including its front end. Put it wherever you like and run it.
 * Unsaved changes are confirmed before anything that would discard them,
   including closing the window, closing a tab and reloading from disk.
 * **Keep opened files** (Options menu, off by default): the documents open at
-  exit come back on the next start, with the same tab active. A file named on
-  the command line wins over the saved list, and files that have since been
-  deleted are skipped.
+  exit come back on the next start, in the same order, with the same tab active.
+  A file named on the command line joins them as an extra tab (and becomes the
+  active tab), so opening a second document does not throw the first one away;
+  naming a file that is already open activates its tab instead of opening it
+  twice. Files that have since been deleted are skipped.
 * **Start with blank** (Options menu, off by default): the window opens on an
   empty `Untitled.md` instead of the welcome document. The tab is numbered
   like any other new tab, so a second blank tab becomes `Untitled-2.md`. Files
@@ -180,8 +183,8 @@ application, including its front end. Put it wherever you like and run it.
 **Updates**
 
 * The version in use is printed beside *Options → Check for update...*. When a
-  newer release exists, the row reads `1.0.0 → 1.0.1` and a *Get JustViewMD
-  1.0.1...* row appears below it, which opens the release page in your browser.
+  newer release exists, the row reads `1.0.1 → 1.0.2` and a *Get JustViewMD
+  1.0.2...* row appears below it, which opens the release page in your browser.
 * The check runs in the background each time the window opens and never
   interrupts: it only ever shows up in the Options menu. Asking from the menu
   reports itself with a toast, because then you asked.
@@ -282,7 +285,7 @@ A release is a tag `vX.Y.Z` with `JustViewMD.exe` as its only asset. That versio
 lives in exactly one place:
 
 ```cmake
-project(JustViewMD VERSION 1.0.0 LANGUAGES CXX)
+project(JustViewMD VERSION 1.0.1 LANGUAGES CXX)
 ```
 
 CMake writes it out to a generated header that the resource script (the version
@@ -486,6 +489,7 @@ reader's own browser.
 | `newTab` | - | Add an empty tab. |
 | `tabSelect` | `index` | The user activated a tab. |
 | `tabClose` | `index`, `content` | Close one tab, with its live text. |
+| `tabReorder` | `from`, `to`, `active` | A tab was dragged to a new place in the strip; the host keeps the same order, and the same session. |
 | `closeAll`, `closeOthers` | `keep` | Close every tab, or every tab but one. |
 | `reload` | - | Re-read the active document from disk. |
 | `content` | `reason`, `index`, `content` | The buffer, answering a `requestContent`. |
@@ -596,8 +600,8 @@ file, the right pane is what that file renders to. That is what keeps the file
 in front of you the one that gets saved, byte for byte, line endings included.
 
 **How do I know a new version exists?** *Options → Check for update...* shows
-the version in use; when a newer release exists the row reads `1.0.0 → 1.0.1`
-and a *Get JustViewMD 1.0.1...* row opens the release page in your browser. The
+the version in use; when a newer release exists the row reads `1.0.1 → 1.0.2`
+and a *Get JustViewMD 1.0.2...* row opens the release page in your browser. The
 same check runs quietly in the background each time the window opens.
 
 ## Notes and limitations

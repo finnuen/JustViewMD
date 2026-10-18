@@ -1551,6 +1551,101 @@ function collapseTabs(keep) {
     });
   }
 
+  // Dragging a tab sideways moves it in the strip.  Plain mouse events rather
+  // than HTML5 drag and drop: the host registers an OLE drop target of its own
+  // on the window for file drops, and a drag that stays inside the page has no
+  // business going near it.  The tab follows the pointer live, so there is no
+  // separate drop indicator to keep in sync.
+  var tabDrag = null;   // { tab, startX, startY, moving } between down and up
+
+  // The gap in the strip the pointer is over, counted in tabs to its left, or
+  // -1 while it is not over a tab at all.
+  function tabInsertionIndex(clientX, clientY) {
+    var element = document.elementFromPoint(clientX, clientY);
+    if (!element || !element.closest) {
+      return -1;
+    }
+    var hit = element.closest('.tab');
+    if (!hit || !tabList.contains(hit)) {
+      return -1;
+    }
+    var index = Number(hit.getAttribute('data-index'));
+    if (!(index >= 0)) {
+      return -1;
+    }
+    // Past the middle of the tab means "after it", which is what makes a swap
+    // happen as the pointer crosses over rather than only on a full-width move.
+    var box = hit.getBoundingClientRect();
+    return clientX > box.left + box.width / 2 ? index + 1 : index;
+  }
+
+  function moveDraggedTab(before) {
+    if (!tabDrag) {
+      return;
+    }
+    var from = state.tabs.indexOf(tabDrag.tab);
+    if (from < 0) {
+      return;
+    }
+    // `before` counts gaps in the list as it stands, and the dragged tab is
+    // still one of its items, so a move to the right loses one.
+    var to = before > from ? before - 1 : before;
+    if (to === from || to < 0 || to > state.tabs.length - 1) {
+      return;
+    }
+    var active = activeTab();
+    state.tabs.splice(from, 1);
+    state.tabs.splice(to, 0, tabDrag.tab);
+    state.active = Math.max(0, state.tabs.indexOf(active));
+    updateTabStrip();
+    // The host keeps the same order, so closing a tab, "close others" and the
+    // saved session all still mean the same tabs.
+    postToHost({ type: 'tabReorder', from: from, to: to, active: state.active });
+  }
+
+  function onTabDragMove(event) {
+    if (!tabDrag) {
+      return;
+    }
+    if (!tabDrag.moving) {
+      var dx = Math.abs(event.clientX - tabDrag.startX);
+      var dy = Math.abs(event.clientY - tabDrag.startY);
+      if (dx < 4 && dy < 4) {
+        return;   // still a click, not a drag
+      }
+      tabDrag.moving = true;
+      if (tabStrip) {
+        tabStrip.classList.add('is-reordering');
+      }
+      updateTabStrip();
+    }
+    // Near either end of a strip that overflows, keep the hidden tabs coming.
+    if (tabScroller.scrollWidth > tabScroller.clientWidth) {
+      var view = tabScroller.getBoundingClientRect();
+      var right = view.right - tabAdd.offsetWidth;
+      if (event.clientX < view.left + 26) {
+        tabScroller.scrollLeft -= 18;
+      } else if (event.clientX > right - 26) {
+        tabScroller.scrollLeft += 18;
+      }
+    }
+    var before = tabInsertionIndex(event.clientX, event.clientY);
+    if (before >= 0) {
+      moveDraggedTab(before);
+    }
+  }
+
+  function endTabDrag() {
+    if (!tabDrag) {
+      return;
+    }
+    tabDrag = null;
+    if (tabStrip) {
+      tabStrip.classList.remove('is-reordering');
+    }
+    updateTabStrip();
+  }
+
   // The strip reserves room for the horizontal scrollbar only while the tabs
   // overflow; updateTabStrip refreshes this after every change to the list.
   function updateTabOverflow() {
@@ -1562,12 +1657,14 @@ function collapseTabs(keep) {
   }
 
   function updateTabStrip() {
+    var dragging = (tabDrag && tabDrag.moving) ? tabDrag.tab : null;
     var html = '';
     for (var index = 0; index < state.tabs.length; index++) {
       var tab = state.tabs[index];
       var name = tab.name || 'Untitled.md';
       var isActive = (index === state.active);
       html += '<div class="tab' + (isActive ? ' is-active' : '') + (tab.dirty ? ' is-dirty' : '') +
+              (tab === dragging ? ' is-dragging' : '') +
               '" role="tab" data-index="' + index + '" aria-selected="' + (isActive ? 'true' : 'false') +
               '" title="' + escapeHtml(tab.path || name) + '">' +
               '<svg class="tab-icon" viewBox="0 0 16 16" aria-hidden="true">' +
@@ -1581,11 +1678,14 @@ function collapseTabs(keep) {
     }
     tabList.innerHTML = html;
     tabAdd.disabled = state.tabs.length >= 96;
-    // Keep the active tab in view, leaving the pinned + button its width.
-    var activeElement = tabList.querySelector('.tab.is-active');
-    if (activeElement) {
+    // Keep a tab in view, leaving the pinned + button its width.  While a drag
+    // is running that is the tab under the pointer, so the strip follows it
+    // instead of jumping back to the active one on every move.
+    var keepInView = dragging ? tabList.querySelector('.tab.is-dragging')
+                              : tabList.querySelector('.tab.is-active');
+    if (keepInView) {
       var view = tabScroller.getBoundingClientRect();
-      var box = activeElement.getBoundingClientRect();
+      var box = keepInView.getBoundingClientRect();
       var pinned = tabAdd.offsetWidth;
       if (box.right > view.right - pinned) {
         tabScroller.scrollLeft += box.right - (view.right - pinned);
@@ -2877,8 +2977,20 @@ function collapseTabs(keep) {
       if (event.button === 0) {
         event.preventDefault();
         selectTab(index, true);
+        // Selecting on mousedown is what makes switching tabs feel instant; the
+        // press only becomes a drag once the pointer has moved a few pixels.
+        var pressed = state.tabs[index];
+        if (pressed) {
+          tabDrag = { tab: pressed, startX: event.clientX, startY: event.clientY, moving: false };
+        }
       }
     });
+
+    // The drag lives on the window rather than on the tab: the pointer may
+    // leave the strip - and the tab it started on - without ending it.
+    window.addEventListener('mousemove', onTabDragMove);
+    window.addEventListener('mouseup', endTabDrag);
+    window.addEventListener('blur', endTabDrag);
 
     tabList.addEventListener('contextmenu', function (event) {
       var tab = event.target.closest ? event.target.closest('.tab') : null;

@@ -53,6 +53,7 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
 - [x] Split view with synchronized scrolling
 - [x] `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as
 - [x] Drag a `.md` file onto the window
+- [x] Drag a tab to move it along the strip
 - [ ] Write something of your own[^note]
 
 [^note]: Footnotes work in the offline build too — they are rendered by a small

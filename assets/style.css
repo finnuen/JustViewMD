@@ -59,7 +59,7 @@
 
   --statusbar-height: 26px;
   --menubar-height: 30px;
-  --tabstrip-height: 33px;
+  --tabstrip-height: 28px;
   --tabs-scrollbar-height: 9px;
   --radius: 8px;
 }
@@ -243,6 +243,14 @@ body { display: flex; flex-direction: column; }
 .tab:hover { background: var(--bg-hover); color: var(--text); }
 .tab.is-active {
   background: var(--tab-active-bg);
+  border-top-color: var(--accent);
+  color: var(--text);
+}
+/* A tab being dragged to a new place in the strip (see initTabs in app.js).
+   The rule sits after .tab.is-active so that it wins for the active tab too. */
+.tabstrip.is-reordering, .tabstrip.is-reordering .tab { cursor: grabbing; }
+.tab.is-dragging {
+  background: var(--bg-active);
   border-top-color: var(--accent);
   color: var(--text);
 }

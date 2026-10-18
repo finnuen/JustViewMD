@@ -15,7 +15,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(JustViewMD VERSION 1.0.0 LANGUAGES CXX)
+project(JustViewMD VERSION 1.0.1 LANGUAGES CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "JustViewMD is a Windows desktop application.")
@@ -217,11 +217,13 @@ else()
     set(_jvmd_resources src/app.rc "${CMAKE_CURRENT_BINARY_DIR}/assets.rc" "${_jvmd_loader_rc}")
 endif()
 
-# A resource compiler does not know that app.rc pulls in the icons, so without
-# this a rebuilt .ico would silently keep the previous one inside the exe.
+# A resource compiler does not know that app.rc pulls in the icons, and the
+# generator does not know the version header is rewritten at configure time, so
+# without this a rebuilt .ico or a bumped version would silently keep the
+# previous bytes inside the exe.
 if (_jvmd_resources)
     set_property(SOURCE src/app.rc APPEND PROPERTY OBJECT_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico;${CMAKE_CURRENT_SOURCE_DIR}/src/file-icon.ico")
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico;${CMAKE_CURRENT_SOURCE_DIR}/src/file-icon.ico;${CMAKE_CURRENT_BINARY_DIR}/version_generated.h")
 endif()
 
 # ---------------------------------------------------------------------------

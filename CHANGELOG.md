@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.1
+
+* "Keep opened files" now keeps them when the next start is asked for a file:
+  `open a.md`, close, `open b.md` shows `a.md` and `b.md`, with `b.md` active,
+  instead of replacing the session with `b.md`. A file that is already open is
+  activated rather than opened twice.
+* Tabs can be dragged sideways to reorder the strip. The order follows into the
+  saved session, and the active tab stays active as it moves.
+* The tab strip is 28 px tall instead of 33 px, so the editor starts that much
+  higher up the window.
+
 ## 1.0.0
 
 The version that has a version.  Everything the application shows now comes from
