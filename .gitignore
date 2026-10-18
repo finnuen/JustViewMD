@@ -1,0 +1,27 @@
+# Build output.  dist/ holds the executable that goes on a release; it is built,
+# not committed - the tag and the release asset are the record of it.
+build/
+dist/
+
+# CMake and compiler leftovers
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeUserPresets.json
+compile_commands.json
+*.obj
+*.o
+*.exe
+*.lib
+*.dll
+
+# Editors and the operating system
+.vscode/
+.idea/
+*.user
+*.swp
+Thumbs.db
+desktop.ini
+
+# Logs written by --log
+*.log

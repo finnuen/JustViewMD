@@ -1,0 +1,57 @@
+# Working on JustViewMD
+
+Notes for anyone (or anything) changing this repository.  The rules below are
+the ones that are easy to get wrong.
+
+## Commits and pushing
+
+- Commit and push **straight to `main`**.  No feature branches, no pull
+  requests.
+- Show `git status` and the staged diff before committing: there is no review
+  gate afterwards.
+- **Nothing that names an AI tool.**  No `Co-Authored-By` trailer, no
+  "Generated with ..." footer in a commit message, no AI tool listed in
+  `CONTRIBUTING` or `AUTHORS`.  Commits carry the author's own name and email
+  only.
+
+## Releases
+
+- A release is a tag `vX.Y.Z` with **one asset: `JustViewMD.exe`**.  The
+  executable is not committed to the repository - `dist/` is ignored and the
+  release is the record of a build.
+- The tag, the version in the file properties and the version the application
+  shows all have to agree.  They do because they come from one place:
+  `project(JustViewMD VERSION X.Y.Z ...)` in `CMakeLists.txt`.  CMake writes
+  that out to `version_generated.h`, which `src/app.rc` (the resource version)
+  and `src/main.cpp` (the Options menu and the update check) both include.
+  **Bumping a release is one edit.**
+- The update check reads `releases/latest` of `finnuen/JustViewMD`, so a release
+  has to be published (not a draft) before the application can see it.  Release
+  tags are `vX.Y.Z`.
+
+## Building
+
+- MinGW-w64 (GCC) and MSVC are both supported: `build.bat` on Windows, or
+  `cmake -B build` + `cmake --build build`.
+- The only dependencies are the Windows SDK and the Microsoft Edge WebView2 SDK,
+  which CMake fetches.  Do not add a third-party library that has to be shipped
+  beside the executable: the program is one `.exe` on purpose, and it must keep
+  linking nothing but system DLLs.
+- **Build-only verification.**  Compiling is the check that is expected here;
+  the GUI is smoke-tested by hand.
+
+## The pieces worth knowing before touching them
+
+- The page never talks to the network.  `assets/` is served from
+  `https://app.local`, pictures are fetched by the host and served from
+  `https://cache.local`, and the update check is a host request too.  Any new
+  feature that needs the network belongs in the host, not in `assets/`.
+- Settings and the session live in `%LOCALAPPDATA%\JustViewMD\settings.ini`,
+  written atomically.  Nothing goes in the registry: the registry is only ever
+  *read* to migrate options from releases that predate the settings file.
+- Nothing in the program deletes a cached picture.  The Options menu reports how
+  much is cached and opens the folder; what stays and what goes is the user's
+  decision in Explorer.
+- The update check must never interrupt.  It runs in the background when the
+  window opens and reports itself only in the Options menu; a toast is shown
+  only when the user asked for the check.

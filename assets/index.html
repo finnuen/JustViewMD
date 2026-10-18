@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<!-- Everything is served from the local application folder: no request ever
+     leaves the machine.  Pictures that a document points at are downloaded by
+     the host and served from https://cache.local/ (see the host's image
+     cache), so the page itself never loads anything from the web.
+     'unsafe-inline' is needed because KaTeX and Mermaid emit inline styles. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://app.local file:; style-src 'self' https://app.local file: 'unsafe-inline'; font-src 'self' https://app.local file:; img-src 'self' https://app.local https://cache.local file: data: blob:; connect-src 'self' https://app.local; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
+<title>JustViewMD</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="vendor/prism/prism.css" id="prismDark">
+<link rel="stylesheet" href="vendor/prism/prism-light.css" id="prismLight" disabled>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="menubar" id="menubar">
+    <button type="button" class="menubar-item" id="menuFile" data-menu="file"
+            aria-haspopup="menu" aria-expanded="false">File</button>
+    <button type="button" class="menubar-item" id="menuEdit" data-menu="edit"
+            aria-haspopup="menu" aria-expanded="false">Edit</button>
+    <button type="button" class="menubar-item" id="menuOptions" data-menu="options"
+            aria-haspopup="menu" aria-expanded="false">Options</button>
+    <span class="menubar-spacer"></span>
+    <span class="menubar-hint" id="menubarHint"></span>
+  </header>
+
+  <div class="tabstrip">
+    <div class="tabs" id="tabScroller">
+      <div class="tab-list" id="tabList" role="tablist" aria-label="Open documents"></div>
+      <button type="button" class="tab-add" id="tabAdd" title="New document (Ctrl+T)"
+              aria-label="New document">+</button>
+    </div>
+  </div>
+
+  <div class="findbar" id="findBar" hidden>
+    <div class="find-row">
+      <input type="text" id="findInput" class="find-input" placeholder="Find" spellcheck="false"
+             autocomplete="off" aria-label="Find">
+      <span class="find-count" id="findCount">0/0</span>
+      <button type="button" class="find-button" id="findPrev" title="Previous match (Shift+Enter)"
+              aria-label="Previous match">&#8593;</button>
+      <button type="button" class="find-button" id="findNext" title="Next match (Enter)"
+              aria-label="Next match">&#8595;</button>
+      <button type="button" class="find-toggle" id="findCase" title="Match case">Aa</button>
+      <button type="button" class="find-toggle" id="findWord" title="Whole word only">W</button>
+      <button type="button" class="find-toggle" id="findRegex" title="Regular expression">.*</button>
+    </div>
+    <div class="find-row">
+      <input type="text" id="replaceInput" class="find-input" placeholder="Replace with"
+             spellcheck="false" autocomplete="off" aria-label="Replace with">
+      <button type="button" class="find-button find-button-text" id="replaceOne"
+              title="Replace this match (Ctrl+Shift+Enter)">Replace</button>
+      <button type="button" class="find-button find-button-text" id="replaceAll"
+              title="Replace all matches (Ctrl+Alt+Enter)">Replace All</button>
+    </div>
+    <button type="button" class="find-close" id="findClose" title="Close (Esc)"
+            aria-label="Close find bar">&#215;</button>
+  </div>
+
+  <div class="workspace" id="workspace">
+
+    <section class="pane pane-editor" id="editorPane">
+      <div class="editor-viewport" id="editorViewport">
+        <div class="gutter" id="gutter" aria-hidden="true"><div class="gutter-inner" id="gutterInner"></div></div>
+        <div class="find-highlight" id="findHighlight" aria-hidden="true">
+          <div class="find-highlight-inner" id="findHighlightInner"></div>
+        </div>
+        <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocapitalize="off"
+                  autocorrect="off" wrap="soft" aria-label="Markdown source"></textarea>
+      </div>
+      <footer class="statusbar">
+        <span class="status-item status-file" id="statusFile" title="Active document">Untitled.md</span>
+        <span class="status-spacer"></span>
+        <span class="status-item" id="statusCursor" title="Cursor position">Ln 1, Col 1</span>
+        <span class="status-item" id="statusWords" title="Word count">0 words</span>
+        <span class="status-item" id="statusChars" title="Character count">0 chars</span>
+        <span class="status-item" id="statusLines" title="Line count">1 line</span>
+      </footer>
+    </section>
+
+    <div class="divider" id="divider" role="separator" aria-orientation="vertical" tabindex="0"
+         title="Drag to resize the panes, double-click to reset"></div>
+
+    <section class="pane pane-preview" id="previewPane">
+      <div class="preview-viewport" id="previewViewport">
+        <article class="markdown-body" id="markdown"></article>
+      </div>
+      <footer class="statusbar statusbar-preview">
+        <span class="status-item" id="statusRender" title="Renderer state">Ready</span>
+        <span class="status-spacer"></span>
+        <span class="status-item status-hint">Ctrl+F find &middot; Ctrl+T new tab &middot; Ctrl+W close tab</span>
+      </footer>
+    </section>
+  </div>
+
+  <div class="drop-overlay" id="dropOverlay" hidden>
+    <div class="drop-card">
+      <strong>Drop to open</strong>
+      <span>.md, .markdown, .mdx, .txt</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <div class="menu" id="contextMenu" role="menu" hidden></div>
+
+  <script src="vendor/marked.js"></script>
+  <script src="vendor/katex/katex.min.js"></script>
+  <script src="vendor/prism/prism.js"></script>
+  <script src="vendor/mermaid/mermaid.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

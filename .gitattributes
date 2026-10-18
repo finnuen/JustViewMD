@@ -1,0 +1,15 @@
+# Normalise line endings on commit and check out LF, so a clone on Windows and a
+# clone on Linux hold the same bytes.  The front end is served from inside the
+# executable, so identical bytes are what makes a build reproducible.
+* text=auto eol=lf
+
+# Batch files keep CRLF: cmd.exe is happiest with it.
+*.bat text eol=crlf
+
+# Binary files are never touched.
+*.png binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.woff2 binary

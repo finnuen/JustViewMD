@@ -1,0 +1,62 @@
+// JustViewMD application resource script (icon + version information).
+//
+// Kept free of system headers so that both the MSVC resource compiler and
+// MinGW-w64 windres can process it without extra include paths.
+
+#include "resource.h"
+
+// The version numbers, written by CMake from the one version in CMakeLists.txt
+// (the build folder is on the resource compiler's include path).
+#include "version_generated.h"
+
+// Values that normally come from winver.h / windows.h, defined here so that the
+// script is self-contained.  If the resource compiler already knows them the
+// guards below keep their definitions.
+//
+// VS_VERSION_INFO matters in particular: without it the version block is stored
+// under the *name* "VS_VERSION_INFO" instead of resource id 1, and then neither
+// the file's Details tab nor GetFileVersionInfo() finds it.
+#ifndef VS_VERSION_INFO
+#define VS_VERSION_INFO 1
+#endif
+#ifndef VS_FFI_FILEFLAGSMASK
+#define VS_FFI_FILEFLAGSMASK 0x0000003FL
+#endif
+#ifndef VOS_NT_WINDOWS32
+#define VOS_NT_WINDOWS32 0x00040000L
+#endif
+#ifndef VFT_APP
+#define VFT_APP 0x00000001L
+#endif
+
+IDI_APPICON ICON "app.ico"
+IDI_DOCICON ICON "file-icon.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION     JVMD_VERSION_COMMA
+ PRODUCTVERSION  JVMD_VERSION_COMMA
+ FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+ FILEFLAGS       0x0L
+ FILEOS          VOS_NT_WINDOWS32
+ FILETYPE        VFT_APP
+ FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "JustViewMD"
+            VALUE "FileDescription",  "JustViewMD - Markdown live preview"
+            VALUE "FileVersion",      JVMD_VERSION_DOTTED
+            VALUE "InternalName",     "JustViewMD"
+            VALUE "LegalCopyright",   "MIT licensed"
+            VALUE "OriginalFilename", "JustViewMD.exe"
+            VALUE "ProductName",      "JustViewMD"
+            VALUE "ProductVersion",   JVMD_VERSION_DOTTED
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
