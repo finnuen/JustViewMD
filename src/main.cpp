@@ -42,6 +42,7 @@
 #include <atomic>
 #include <cstring>
 #include <cstdlib>
+#include <cwctype>
 #include <deque>
 #include <set>
 #include <string>
@@ -183,7 +184,6 @@ constexpr UINT     kCloseFallbackMilliseconds = 2500;
 constexpr wchar_t kVerbKeyPrefix[]  = L"Software\\Classes\\SystemFileAssociations\\";
 constexpr wchar_t kVerbKeySuffix[]  = L"\\shell\\JustViewMD";
 constexpr wchar_t kVerbLabel[]      = L"Open with JustViewMD";
-const wchar_t* const kRegisteredExtensions[] = { L".md", L".markdown" };
 
 // Default handler registration ----------------------------------------------
 // The ProgID below is what the per-extension keys point at when the user asks
@@ -191,7 +191,11 @@ const wchar_t* const kRegisteredExtensions[] = { L".md", L".markdown" };
 constexpr wchar_t kProgId[]            = L"JustViewMD.Document";
 constexpr wchar_t kProgIdDescription[] = L"Markdown document";
 constexpr wchar_t kClassesKey[]        = L"Software\\Classes\\";
-const wchar_t* const kAssociatedExtensions[] = { L".md", L".markdown", L".mdx" };
+
+// One list for both halves of the shell integration: a type this application
+// opens gets the "Open with JustViewMD" entry and can be given to it as the
+// default.  Adding a type here is the only place that has to change.
+const wchar_t* const kDocumentExtensions[] = { L".md", L".markdown", L".mdx" };
 
 // Options and the session live in %LOCALAPPDATA%\JustViewMD\settings.ini.  The
 // key below is where the releases before that file kept them: it is read once,
@@ -1469,6 +1473,16 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
     return true;
 }
 
+[[nodiscard]] bool RegistryKeyExists(HKEY root, const std::wstring& subKey) {
+    HKEY key = nullptr;
+    const LSTATUS status = ::RegOpenKeyExW(root, subKey.c_str(), 0, KEY_READ, &key);
+    if (status != ERROR_SUCCESS) {
+        return false;
+    }
+    ::RegCloseKey(key);
+    return true;
+}
+
 [[nodiscard]] bool ReadRegistryDword(HKEY root, const std::wstring& subKey, const wchar_t* valueName,
                                      DWORD& value) {
     HKEY key = nullptr;
@@ -1517,7 +1531,7 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
 }
 
 [[nodiscard]] bool IsShellIntegrationRegistered() {
-    for (const wchar_t* extension : kRegisteredExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         const std::wstring commandKey = ShellVerbKey(extension) + L"\\command";
         HKEY key = nullptr;
         const LSTATUS status = ::RegOpenKeyExW(HKEY_CURRENT_USER, commandKey.c_str(), 0, KEY_READ, &key);
@@ -1539,7 +1553,7 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
     const std::wstring commandValue = quotedExecutable + L" \"%1\"";
 
     bool ok = true;
-    for (const wchar_t* extension : kRegisteredExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         const std::wstring verbKey = ShellVerbKey(extension);
         ok = WriteRegistryString(HKEY_CURRENT_USER, verbKey, nullptr, kVerbLabel) && ok;
         ok = WriteRegistryString(HKEY_CURRENT_USER, verbKey, L"Icon", iconValue) && ok;
@@ -1556,7 +1570,7 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
 
 [[nodiscard]] bool UnregisterShellIntegration() {
     bool ok = true;
-    for (const wchar_t* extension : kRegisteredExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         ok = DeleteRegistryTree(HKEY_CURRENT_USER, ShellVerbKey(extension)) && ok;
     }
     return ok;
@@ -1568,6 +1582,117 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
     std::wstring key(kClassesKey);
     key += extensionOrProgId;
     return key;
+}
+
+// --- The document icon ------------------------------------------------------
+//
+// Two icons live in the executable.  IDI_APPICON is the first icon group in the
+// file, which is what Explorer shows for JustViewMD.exe itself; IDI_DOCICON is
+// a sheet marked ".MD", and it belongs to the documents the program opens.
+// Windows takes a document's icon from whichever route it resolved the handler
+// through:
+//
+//   * JustViewMD.Document\DefaultIcon, when this application is the default;
+//   * Applications\<executable name>\DefaultIcon, the entry Explorer's "Open
+//     with" creates.  That one is keyed by the executable's *name*, and the
+//     name carries the version, so every release starts a fresh entry with no
+//     icon of its own - and its documents fall back to the application's badge.
+//
+// The three functions below keep the two apart on every start.  HKCU only, and
+// only values this application owns.
+
+[[nodiscard]] std::wstring DocumentIconValue(const std::wstring& executable) {
+    return L"\"" + executable + L"\",-" + std::to_wstring(IDI_DOCICON);
+}
+
+[[nodiscard]] std::wstring ApplicationKeyFor(std::wstring_view executableName) {
+    std::wstring key(kClassesKey);
+    key += L"Applications\\";
+    key += executableName;
+    return key;
+}
+
+[[nodiscard]] bool StartsWithNoCase(std::wstring_view text, std::wstring_view prefix) {
+    if (text.size() < prefix.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < prefix.size(); ++index) {
+        if (::towlower(text[index]) != ::towlower(prefix[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool EndsWithNoCase(std::wstring_view text, std::wstring_view suffix) {
+    return text.size() >= suffix.size() &&
+           StartsWithNoCase(text.substr(text.size() - suffix.size()), suffix);
+}
+
+// "C:\Program Files\JustViewMD\JustViewMD.exe" "%1" becomes the path.
+[[nodiscard]] std::wstring ExecutableFromCommand(std::wstring_view command) {
+    if (command.empty()) {
+        return std::wstring();
+    }
+    if (command.front() == L'"') {
+        const size_t close = command.find(L'"', 1);
+        return close == std::wstring_view::npos ? std::wstring()
+                                                : std::wstring(command.substr(1, close - 1));
+    }
+    return std::wstring(command.substr(0, command.find(L' ')));
+}
+
+// Every "Open with" entry this application has ever created, given the document
+// icon and pointed at the running executable: the icon is the same in every
+// release, and a path that still exists is what keeps it off the fallback.
+// The command each entry carries is left alone - that is which copy of the
+// program the user picked.
+void RepairApplicationEntries(const std::wstring& executable) {
+    const std::wstring applications = std::wstring(kClassesKey) + L"Applications";
+    HKEY root = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, applications.c_str(), 0, KEY_READ, &root) != ERROR_SUCCESS) {
+        return;
+    }
+    for (DWORD index = 0;; ++index) {
+        wchar_t name[256] = {};
+        DWORD length = ARRAYSIZE(name);
+        if (::RegEnumKeyExW(root, index, name, &length, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+            break;
+        }
+        const std::wstring entry(name, length);
+        if (!StartsWithNoCase(entry, L"justviewmd") || !EndsWithNoCase(entry, L".exe")) {
+            continue;
+        }
+        (void)WriteRegistryString(HKEY_CURRENT_USER, ApplicationKeyFor(entry) + L"\\DefaultIcon", nullptr,
+                                  DocumentIconValue(executable));
+    }
+    ::RegCloseKey(root);
+}
+
+void RefreshDocumentIcons() {
+    const std::wstring executable = ExePath();
+    if (executable.empty()) {
+        return;
+    }
+    const std::wstring icon = DocumentIconValue(executable);
+    (void)WriteRegistryString(HKEY_CURRENT_USER, ApplicationKeyFor(FileNameOf(executable)) + L"\\DefaultIcon",
+                              nullptr, icon);
+    // The ProgID's icon follows the running executable, but only once the
+    // ProgID exists: starting the program must not create a file type.
+    const std::wstring progIdKey = ClassesKeyFor(kProgId);
+    if (RegistryKeyExists(HKEY_CURRENT_USER, progIdKey)) {
+        (void)WriteRegistryString(HKEY_CURRENT_USER, progIdKey + L"\\DefaultIcon", nullptr, icon);
+        // A registration whose executable has been replaced by a newer build
+        // would open nothing at all, so a dead command is repointed.  A live
+        // one is never touched: that is the copy the user chose.
+        std::wstring command;
+        const std::wstring commandKey = progIdKey + L"\\shell\\open\\command";
+        if (ReadRegistryString(HKEY_CURRENT_USER, commandKey, nullptr, command) &&
+            !FileExists(ExecutableFromCommand(command))) {
+            (void)WriteRegistryString(HKEY_CURRENT_USER, commandKey, nullptr, L"\"" + executable + L"\" \"%1\"");
+        }
+    }
+    RepairApplicationEntries(executable);
 }
 
 // Writes the ProgID, its icon (the document icon in this executable) and its
@@ -1585,23 +1710,25 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
     ok = WriteRegistryString(HKEY_CURRENT_USER, progIdKey, nullptr, kProgIdDescription) && ok;
     ok = WriteRegistryString(HKEY_CURRENT_USER, progIdKey, L"FriendlyTypeName", kProgIdDescription) && ok;
     ok = WriteRegistryString(HKEY_CURRENT_USER, progIdKey + L"\\DefaultIcon", nullptr,
-                             quotedExecutable + L",-" + std::to_wstring(IDI_DOCICON)) && ok;
+                             DocumentIconValue(executable)) && ok;
     ok = WriteRegistryString(HKEY_CURRENT_USER, progIdKey + L"\\shell\\open\\command", nullptr,
                              quotedExecutable + L" \"%1\"") && ok;
 
-    for (const wchar_t* extension : kAssociatedExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         const std::wstring extensionKey = ClassesKeyFor(extension);
         ok = WriteRegistryString(HKEY_CURRENT_USER, extensionKey, nullptr, kProgId) && ok;
         // OpenWithProgids makes the entry show up in "Open with" lists even
         // while another application is still the default.
         ok = WriteRegistryString(HKEY_CURRENT_USER, extensionKey + L"\\OpenWithProgids", kProgId, L"") && ok;
     }
+    // The "Open with" entries carry the icon for the same documents.
+    RefreshDocumentIcons();
     return ok;
 }
 
 [[nodiscard]] bool UnregisterDefaultApplication() {
     bool ok = true;
-    for (const wchar_t* extension : kAssociatedExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         const std::wstring extensionKey = ClassesKeyFor(extension);
         // Only remove the default when it is ours: someone else's choice has to
         // survive being switched off here.
@@ -1645,7 +1772,7 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
 // associated extension.  Windows can still insist on a UserChoice elsewhere -
 // that is a separate question, and DescribeDefaultOverride() answers it.
 [[nodiscard]] bool IsDefaultApplication() {
-    for (const wchar_t* extension : kAssociatedExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         std::wstring current;
         if (!ReadRegistryString(HKEY_CURRENT_USER, ClassesKeyFor(extension), nullptr, current) ||
             current != kProgId) {
@@ -1658,7 +1785,7 @@ CreateEnvironmentWithOptionsFn g_createEnvironmentWithOptions = nullptr;
 // A sentence naming the application Windows actually uses, or an empty string
 // when no UserChoice stands in the way.
 [[nodiscard]] std::wstring DescribeDefaultOverride() {
-    for (const wchar_t* extension : kAssociatedExtensions) {
+    for (const wchar_t* extension : kDocumentExtensions) {
         const std::wstring choice = UserChoiceProgId(extension);
         if (choice.empty() || choice == kProgId) {
             continue;
@@ -4986,6 +5113,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previousInstan
             return (menus && defaults) ? 0 : 1;
         }
         const bool ok = RegisterShellIntegration(false);
+        RefreshDocumentIcons();
         return ok ? 0 : 1;
     }
 
@@ -5026,6 +5154,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previousInstan
     // First run: make right-clicking a .md file in Explorer work out of the box.
     if (!skipAutoRegister && !IsShellIntegrationRegistered()) {
         (void)RegisterShellIntegration(true);
+    }
+    // Not an option, and not part of the first run: the program's badge belongs
+    // to the program and the document icon to the documents, whichever copy of
+    // the executable Windows is pointing at today.
+    if (!skipAutoRegister) {
+        RefreshDocumentIcons();
     }
 
     return RunApplication(instance, showCommand);

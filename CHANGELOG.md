@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.3
+
+* Markdown files keep the document icon, and the executable keeps its own.
+  Explorer takes a document's icon from whichever registration it resolved the
+  handler through, and the "Open with" entry it creates is keyed by the
+  executable's name - which carries the version - so a renamed executable left
+  `.md` files wearing the application's badge. Both registrations are written on
+  every start now, and the entries earlier versions left behind are repaired in
+  place, so neither a rename nor an upgrade can mix the two icons up.
+* `.mdx` gets the "Open with JustViewMD" context-menu entry as well; it was
+  already offered as a default application, but the menu entry only covered
+  `.md` and `.markdown`.
+
 ## 1.0.2
 
 * Print and PDF. *File → Print…* (`Ctrl+P`) prints the rendered document through

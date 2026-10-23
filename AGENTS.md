@@ -61,3 +61,11 @@ the ones that are easy to get wrong.
 - The update check must never interrupt.  It runs in the background when the
   window opens and reports itself only in the Options menu; a toast is shown
   only when the user asked for the check.
+- Two icons, never swapped: `IDI_APPICON` (101) is the first icon group in the
+  file and is what Explorer shows for the executable itself, `IDI_DOCICON` (102)
+  is the sheet marked `.MD` and belongs to the documents.  Windows takes a
+  document's icon from the registration it resolved the handler through, and an
+  "Open with" entry is keyed by the executable's name - which carries the
+  version - so `RefreshDocumentIcons()` in `src/main.cpp` rewrites the icon of
+  the ProgID and of every `Applications\JustViewMD*.exe` entry on each start.
+  Keep that call: without it a rename sends `.md` files back to the app badge.

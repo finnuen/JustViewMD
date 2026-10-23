@@ -29,6 +29,10 @@
 #define VFT_APP 0x00000001L
 #endif
 
+// Order matters: the first icon group in the file is the one Explorer shows for
+// JustViewMD.exe itself, so the application icon comes first.  Documents use the
+// second one, through the DefaultIcon value the host writes for them
+// (RefreshDocumentIcons in src/main.cpp, always "<exe>,-102").
 IDI_APPICON ICON "app.ico"
 IDI_DOCICON ICON "file-icon.ico"
 
