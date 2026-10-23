@@ -140,6 +140,13 @@
 
   var MAX_FIND_MATCHES = 20000;
 
+  // Marks painted inside the rendered preview, in document order.  They are
+  // rebuilt by searching the preview's own text, so this list is independent of
+  // find.matches: the counter, the next/previous order and the replace
+  // operations stay tied to the source offsets.
+  var previewFindHits = [];
+  var previewFindCurrent = -1;
+
   var bootLoaded = false;
 
   var renderTimer = null;
@@ -1869,6 +1876,7 @@ function collapseTabs(keep) {
       find.current = 0;
     }
     renderFindHighlights();
+    paintPreviewFindHits();
     updateFindCount();
   }
 
@@ -1933,6 +1941,145 @@ function collapseTabs(keep) {
     return line;
   }
 
+  /* --- the preview's own highlights --------------------------------------- */
+
+  // Nodes whose text is not prose.  Marking them would either be undone by the
+  // renderer that owns the subtree (Mermaid, KaTeX) or change what is drawn
+  // (an SVG or MathML tree has no plain text run to wrap).
+  function skipPreviewFindNode(parent) {
+    for (var node = parent; node && node !== markdown; node = node.parentNode) {
+      var name = node.nodeName;
+      if (name === 'svg' || name === 'SVG' || name === 'MATH' || name === 'SCRIPT' ||
+          name === 'STYLE' || name === 'TEXTAREA') {
+        return true;
+      }
+      if (node.classList && (node.classList.contains('katex') ||
+                             node.classList.contains('mermaid') ||
+                             node.classList.contains('mermaid-block'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function clearPreviewFindHits() {
+    for (var index = 0; index < previewFindHits.length; index++) {
+      var mark = previewFindHits[index];
+      var parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent), mark);
+      }
+    }
+    previewFindHits.length = 0;
+    previewFindCurrent = -1;
+    if (markdown.normalize) {
+      // Merge the text nodes the marks were cut out of, so repeated repaints
+      // do not leave a long document fragmented into tiny nodes.
+      markdown.normalize();
+    }
+  }
+
+  function paintPreviewTextNode(node, pattern) {
+    var text = node.nodeValue;
+    pattern.lastIndex = 0;
+    var ranges = [];
+    var match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[0].length === 0) {
+        pattern.lastIndex += 1;  // a zero-width match would never advance
+        continue;
+      }
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+    if (!ranges.length) {
+      return;
+    }
+
+    var fragment = document.createDocumentFragment();
+    var position = 0;
+    for (var index = 0; index < ranges.length; index++) {
+      var range = ranges[index];
+      if (range.start > position) {
+        fragment.appendChild(document.createTextNode(text.slice(position, range.start)));
+      }
+      var mark = document.createElement('mark');
+      mark.className = 'find-hit';
+      mark.textContent = text.slice(range.start, range.end);
+      fragment.appendChild(mark);
+      previewFindHits.push(mark);
+      position = range.end;
+    }
+    if (position < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(position)));
+    }
+    node.parentNode.replaceChild(fragment, node);
+  }
+
+  // Paints the query into the rendered preview with the same pattern the source
+  // scan uses, so case, whole word and regular expression behave identically in
+  // both panes.  The nodes are collected before anything is replaced: mutating
+  // while walking would confuse the walker.
+  function paintPreviewFindHits() {
+    clearPreviewFindHits();
+    if (!find.open || !find.query || find.invalid || !find.matches.length) {
+      return;
+    }
+    if (state.settings.viewMode === 'editor' || state.heavy) {
+      // Not on screen, or too large to walk on every keystroke: the counter and
+      // the scrolling still work, only the preview marks are skipped.
+      return;
+    }
+    var pattern = findPattern();
+    if (!pattern) {
+      return;
+    }
+
+    var nodes = [];
+    var walker = document.createTreeWalker(markdown, NodeFilter.SHOW_TEXT, null);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!node.nodeValue || !node.nodeValue.length || skipPreviewFindNode(node.parentNode)) {
+        continue;
+      }
+      nodes.push(node);
+    }
+    for (var index = 0; index < nodes.length; index++) {
+      paintPreviewTextNode(nodes[index], pattern);
+    }
+
+    // When both panes agree on how many occurrences there are, the current
+    // match is the same occurrence in the preview and can be singled out.
+    if (find.current >= 0 && previewFindHits.length === find.matches.length) {
+      previewFindHits[find.current].classList.add('is-current');
+      previewFindCurrent = find.current;
+    }
+  }
+
+  // Brings the preview to the current match.  The painted marks line up with the
+  // source matches in the normal case; when they do not (a match split across
+  // inline markup), the block the match starts on is scrolled to instead.
+  function scrollPreviewToFindHit(match) {
+    ensureAnchors();
+    var limit = maxScroll(previewViewport);
+    var top = null;
+    if (previewFindCurrent >= 0 && previewFindHits[previewFindCurrent]) {
+      var mark = previewFindHits[previewFindCurrent];
+      var position = mark.getBoundingClientRect().top -
+                     previewViewport.getBoundingClientRect().top + previewViewport.scrollTop;
+      top = position - previewViewport.clientHeight / 2 + mark.offsetHeight / 2;
+    } else {
+      var anchor = previewTopForLine(lineFromOffset(match.start));
+      if (anchor !== null) {
+        top = anchor - 24;
+      }
+    }
+    if (top === null) {
+      return;
+    }
+    programmatic.preview = Math.round(clamp(top, 0, limit));
+    previewViewport.scrollTop = programmatic.preview;
+    programmatic.preview = previewViewport.scrollTop;
+  }
+
   function goToMatch(index) {
     var count = find.matches.length;
     if (!count) {
@@ -1940,21 +2087,30 @@ function collapseTabs(keep) {
     }
     find.current = ((index % count) + count) % count;
     var match = find.matches[find.current];
-    try {
-      editor.focus({ preventScroll: true });
-    } catch (error) {
-      editor.focus();
+    // In preview-only mode the editor pane is hidden: moving its caret would
+    // pull focus out of the find box (so typing would stop) and scrolling it
+    // would move something the user cannot see.  The preview follows instead.
+    if (state.settings.viewMode !== 'preview') {
+      try {
+        editor.focus({ preventScroll: true });
+      } catch (error) {
+        editor.focus();
+      }
+      editor.setSelectionRange(match.start, match.end);
+      computeMetrics();
+      var top = metrics.paddingTop + visualFromLogicalLine(lineFromOffset(match.start)) * metrics.lineHeight -
+                editor.clientHeight / 2;
+      programmatic.editor = clamp(top, 0, maxScroll(editor));
+      editor.scrollTop = programmatic.editor;
+      syncFromEditor();
+      renderGutter();
+      updateCursorStatus();
     }
-    editor.setSelectionRange(match.start, match.end);
-    computeMetrics();
-    var top = metrics.paddingTop + visualFromLogicalLine(lineFromOffset(match.start)) * metrics.lineHeight -
-              editor.clientHeight / 2;
-    programmatic.editor = clamp(top, 0, maxScroll(editor));
-    editor.scrollTop = programmatic.editor;
-    syncFromEditor();
-    renderGutter();
-    updateCursorStatus();
     renderFindHighlights();
+    paintPreviewFindHits();
+    if (state.settings.viewMode !== 'editor') {
+      scrollPreviewToFindHit(match);
+    }
     updateFindCount();
   }
 
@@ -1971,6 +2127,13 @@ function collapseTabs(keep) {
     }
     var start = editor.selectionStart;
     var end = editor.selectionEnd;
+    if (state.settings.viewMode === 'preview' && find.current >= 0 &&
+        find.current < find.matches.length) {
+      // The hidden editor keeps whatever caret it had, so in preview-only mode
+      // "next" continues from the match that is highlighted, not from there.
+      start = find.matches[find.current].start;
+      end = find.matches[find.current].end;
+    }
     var target = -1;
     var index;
     if (direction >= 0) {
@@ -2066,9 +2229,8 @@ function collapseTabs(keep) {
   }
 
   function openFindBar(focusReplace) {
-    if (state.settings.viewMode === 'preview') {
-      setViewMode('split', true);
-    }
+    // The pane the user is reading stays the pane they are reading: opening
+    // Find must not switch preview-only back to split.
     // A selection made in the editor becomes the query, like every editor does.
     if (!find.open && document.activeElement === editor && editor.selectionEnd > editor.selectionStart) {
       var selection = editor.value.slice(editor.selectionStart, editor.selectionEnd);
@@ -2092,7 +2254,9 @@ function collapseTabs(keep) {
     find.matches = [];
     find.current = -1;
     findHighlightInner.textContent = '';
-    if (document.activeElement === findInput || document.activeElement === replaceInput) {
+    clearPreviewFindHits();
+    if (state.settings.viewMode !== 'preview' &&
+        (document.activeElement === findInput || document.activeElement === replaceInput)) {
       editor.focus();
     }
   }
@@ -2136,6 +2300,9 @@ function collapseTabs(keep) {
       break;
     case 'zoom':
       state.zoom = Number(data.value) || 1;
+      break;
+    case 'toast':
+      showToast(String(data.text || ''), Boolean(data.error));
       break;
     case 'imageReady':
     case 'imageFailed':
@@ -2210,6 +2377,10 @@ function collapseTabs(keep) {
     workspace.classList.toggle('view-editor', mode === 'editor');
     workspace.classList.toggle('view-preview', mode === 'preview');
     afterResize();
+    if (find.open && mode !== 'editor') {
+      // Marks are skipped while the preview is hidden, so paint them on the way in.
+      paintPreviewFindHits();
+    }
   }
 
   function applyWrap() {
@@ -2399,6 +2570,11 @@ function collapseTabs(keep) {
       items.push({ label: 'Reload from Disk',
         disabled: !activeTab() || !activeTab().path,
         action: function () { postToHost({ type: 'reload' }); } });
+      items.push({ separator: true });
+      items.push({ label: 'Print\u2026', shortcut: 'Ctrl+P',
+        action: function () { postToHost({ type: 'print' }); } });
+      items.push({ label: 'Save as PDF\u2026',
+        action: function () { postToHost({ type: 'exportPdf' }); } });
       items.push({ separator: true });
       items.push({ label: 'Close Tab', shortcut: 'Ctrl+W',
         action: function () { requestCloseTab(state.active); } });
@@ -2895,6 +3071,9 @@ function collapseTabs(keep) {
       } else if (key === 'f') {
         event.preventDefault();
         openFindBar(false);
+      } else if (key === 'p') {
+        event.preventDefault();
+        postToHost({ type: 'print' });
       } else if (key === 'h') {
         event.preventDefault();
         openFindBar(true);

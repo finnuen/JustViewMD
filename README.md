@@ -2,7 +2,7 @@
 
 **A Markdown editor and live preview for Windows in one 5 MB executable.**
 
-Download `JustViewMD.exe`, double-click it, drop a `.md` file on the window, and
+Download the newest `JustViewMD_v<version>.exe`, double-click it, drop a `.md` file on the window, and
 you are editing and previewing at once. GitHub Flavored Markdown, KaTeX math,
 Mermaid diagrams and Prism syntax highlighting are all there, and the front end
 that renders them - along with every library it uses - is compiled into the
@@ -30,7 +30,7 @@ both made by the host, never by the page (see
 | At a glance | |
 | --- | --- |
 | **What it is** | A Markdown editor with a live preview, for Windows |
-| **Download** | One file, `JustViewMD.exe`, about 5 MB (x64) - no installer, nothing to unpack |
+| **Download** | One file, `JustViewMD_v<version>.exe`, about 5 MB (x64) - no installer, nothing to unpack |
 | **Runs on** | Windows 10 1809 or newer, Windows 11; ARM64 builds from source |
 | **Needs** | The Microsoft Edge **WebView2 Runtime**, which ships with Windows |
 | **Markdown** | GitHub Flavored Markdown: tables, task lists, footnotes, strikethrough, autolinks |
@@ -43,7 +43,7 @@ both made by the host, never by the page (see
 
 ## Download
 
-Take `JustViewMD.exe` from the
+Take `JustViewMD_v<version>.exe` from the
 [latest release](https://github.com/finnuen/JustViewMD/releases/latest). There is
 no installer and nothing to unpack: the executable contains the whole
 application, including its front end. Put it wherever you like and run it.
@@ -112,8 +112,8 @@ application, including its front end. Put it wherever you like and run it.
 
 **Menus**
 
-* **File** - new tab, open, save, save as, reload from disk, close tab, close
-  all tabs.
+* **File** - new tab, open, save, save as, reload from disk, print, save as
+  PDF, close tab, close all tabs.
 * **Edit** - undo, redo, cut, copy, paste, select all, find, find and replace.
 * **Options** - view mode (split / editor only / preview only), zoom, line
   wrapping, keep opened files, start with a blank document, set as default for
@@ -135,7 +135,13 @@ application, including its front end. Put it wherever you like and run it.
 * Realtime preview, debounced while typing.
 * Find and replace with match highlighting, `Enter` / `F3` for next,
   `Shift+F3` for previous, `Ctrl+Enter` to replace, case, whole-word and
-  regular-expression switches, and replace-all.
+  regular-expression switches, and replace-all. Find works in the preview as
+  well: it highlights the matches there, scrolls to the current one, and never
+  changes the view you are in.
+* `Ctrl+P` prints the rendered document, or saves it as a PDF from the same
+  dialog; the print stylesheet drops the editor, the tabs and the status bars,
+  prints light colours even from the dark theme, and keeps headings with the
+  text that follows them.
 * Zoom with `Ctrl` `+` / `-` / `0` or `Ctrl`+wheel.
 * Light and dark themes, dark by default.
 * Custom context menu (undo, redo, cut, copy, paste, select all, find, wrap,
@@ -231,12 +237,24 @@ application, including its front end. Put it wherever you like and run it.
 build.bat
 ```
 
-The script finds a compiler (MSVC first, then MinGW-w64), configures, builds and
-copies the result to `dist\`:
+The script finds a compiler (MSVC first, then MinGW-w64), bumps the patch
+version, configures, builds and copies the result to `dist\`:
 
 ```
-dist\JustViewMD.exe
+dist\JustViewMD_v<version>.exe
 ```
+
+Every build carries a version in its name, and bumps the patch number unless you
+say otherwise:
+
+| Command | Version the build carries |
+| --- | --- |
+| `build.bat` | patch +1, e.g. `1.0.1` becomes `1.0.2` |
+| `build.bat --keep-version` | the number already in `CMakeLists.txt`, unchanged |
+| `build.bat --version 2.0.0` | exactly that number; nothing is bumped |
+
+The number lives in one line of `CMakeLists.txt`, and the script edits that line
+rather than a copy of it (see [Releasing](#releasing)).
 
 One file. On the first start of a version the executable unpacks its front end
 into `%LOCALAPPDATA%\JustViewMD\assets\<version>\` (about 4 MB, well under a
@@ -271,7 +289,7 @@ executable, so a rebuild and relink is the point). For a front-end loop without
 rebuilding, point the build at the source folder:
 
 ```bat
-build\bin\JustViewMD.exe --assets assets
+build\bin\JustViewMD_v<version>.exe --assets assets
 ```
 
 > The MinGW-w64 configuration is the one this release was built and exercised
@@ -281,18 +299,18 @@ build\bin\JustViewMD.exe --assets assets
 
 ## Releasing
 
-A release is a tag `vX.Y.Z` with `JustViewMD.exe` as its only asset. That version
-lives in exactly one place:
+A release is a tag `vX.Y.Z` with `JustViewMD_vX.Y.Z.exe` as its only asset. The
+version lives in exactly one place: the `project(JustViewMD VERSION X.Y.Z ...)`
+line in `CMakeLists.txt`.
 
-```cmake
-project(JustViewMD VERSION 1.0.1 LANGUAGES CXX)
-```
-
-CMake writes it out to a generated header that the resource script (the version
-in the file's properties) and the host (the Options menu, the update check and
-`--help`) both use, so the tag, the file properties and what the application
-reports cannot drift apart. Bumping a release is that one edit, a rebuild, and a
-publish.
+`tools/version.ps1` edits that one line - `build.bat` calls it before it
+configures, and it adds one to the patch number unless `--keep-version` or
+`--version` says otherwise. CMake writes the number out to a generated header
+that the resource script (the version in the file's properties), the host (the
+Options menu, the update check and `--help`) and the executable's name all use,
+so the tag, the file properties, the binary name and what the application reports
+cannot drift apart. Bumping a release is `build.bat`, a tag, and publishing the
+file it left in `dist\`.
 
 If you are changing this repository rather than just using it, read
 [AGENTS.md](AGENTS.md) first.
@@ -415,8 +433,10 @@ quiet as well.
 ```
 CMakeLists.txt              build configuration, fetches the WebView2 SDK
                             (the project version here is the one in the file
-                            properties, the Options menu and the update check)
-build.bat                   one-click build (MSVC or MinGW)
+                            properties, the Options menu, the update check and
+                            the executable's name)
+build.bat                   one-click build (MSVC or MinGW), bumps the version
+tools/version.ps1           reads, bumps or sets that one version
 AGENTS.md                   the rules for changing this repository
 .gitignore                  build and release output is never committed
 docs/                       screenshots used by this file

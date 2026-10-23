@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.2
+
+* Print and PDF. *File → Print…* (`Ctrl+P`) prints the rendered document through
+  the system print dialog, and *File → Save as PDF…* writes the same pages to a
+  file you choose. The print stylesheet drops the editor, the tabs and the
+  status bars, prints the light palette even from the dark theme, keeps headings
+  with the text that follows them, and keeps wide tables and pictures on one
+  page.
+* Find no longer switches preview-only back to split when it opens, and it now
+  works in the preview as well: matches are highlighted where they are rendered,
+  the current one is singled out and scrolled to, and `Enter` / `Shift+Enter`
+  keep advancing from the match that is highlighted.
+* The dark theme paints find hits yellow, like the light theme, instead of a
+  blue that read like a selection.
+* The executable carries its version in its name (`JustViewMD_v1.0.2.exe`) and
+  every build bumps the patch number on its own. `build.bat --keep-version`
+  rebuilds the current number unchanged and `--version X.Y.Z` sets it outright.
+* The tab strip is 25 px tall instead of 28 px.
+* PDF export from the dark theme no longer puts a dark border around every
+  page. Chromium paints the sheet with the window's background colour when
+  backgrounds are printed; the export now borrows white paper while it writes.
+
 ## 1.0.1
 
 * "Keep opened files" now keeps them when the next start is asked for a file:

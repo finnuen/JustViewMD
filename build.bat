@@ -3,12 +3,20 @@ rem ===========================================================================
 rem  JustViewMD - one-click build script
 rem
 rem  Uses MSVC when a Visual Studio C++ toolchain is present and falls back to
-rem  MinGW-w64 otherwise.  The finished application is copied to dist\.
+rem  MinGW-w64 otherwise.
+rem
+rem  The version bumps itself: tools\version.ps1 adds one to the patch number in
+rem  CMakeLists.txt, and CMake writes that number into the resource block, the
+rem  Options menu, the update check and the executable's name.  Every copy of
+rem  the number therefore comes from that one line, and what lands in dist\ is
+rem  JustViewMD_v<version>.exe.
 rem
 rem  Usage:
-rem    build.bat            release build
-rem    build.bat --debug    debug build
-rem    build.bat --clean    remove the build tree first
+rem    build.bat                   release build, patch version bumped
+rem    build.bat --debug           debug build, patch version bumped
+rem    build.bat --keep-version    rebuild the current version unchanged
+rem    build.bat --version 2.0.0   set the version outright (nothing is bumped)
+rem    build.bat --clean           remove the build tree first
 rem ===========================================================================
 setlocal EnableExtensions
 
@@ -18,6 +26,7 @@ set "DIST_DIR=%ROOT%dist"
 set "BUILD_TYPE=Release"
 set "GENERATOR="
 set "TOOLCHAIN="
+set "VERSION_ARGS="
 
 :parse_arguments
 if "%~1"=="" goto arguments_done
@@ -34,9 +43,35 @@ if /i "%~1"=="--clean" (
     shift
     goto parse_arguments
 )
+if /i "%~1"=="--keep-version" (
+    set "VERSION_ARGS=-KeepVersion"
+    shift
+    goto parse_arguments
+)
+if /i "%~1"=="--version" (
+    if "%~2"=="" (
+        echo --version needs a number, for example --version 2.0.0
+        exit /b 2
+    )
+    set "VERSION_ARGS=-Version %~2"
+    shift
+    shift
+    goto parse_arguments
+)
 echo Unknown option: %~1
 exit /b 2
 :arguments_done
+
+rem ---------------------------------------------------------------------------
+rem  The version, from the one place that holds it
+rem ---------------------------------------------------------------------------
+set "VERSION="
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\version.ps1" %VERSION_ARGS%`) do set "VERSION=%%v"
+if not defined VERSION goto version_failed
+echo %VERSION%| findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$" >nul
+if errorlevel 1 goto version_failed
+set "EXE_NAME=JustViewMD_v%VERSION%.exe"
+echo Version %VERSION%  (%EXE_NAME%)
 
 rem ---------------------------------------------------------------------------
 rem  Find a compiler
@@ -86,25 +121,41 @@ if errorlevel 1 goto failed
 
 rem ---------------------------------------------------------------------------
 rem  Collect dist\
+rem
+rem  Only the executable built just now is copied: the versioned name already
+rem  says which release it is, and older builds have no business in dist\.
 rem ---------------------------------------------------------------------------
+set "BUILT_EXE=%BUILD_DIR%\bin\%EXE_NAME%"
+if not exist "%BUILT_EXE%" set "BUILT_EXE=%BUILD_DIR%\bin\%BUILD_TYPE%\%EXE_NAME%"
+if not exist "%BUILT_EXE%" goto exe_missing
+
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
-xcopy /E /I /Y /Q "%BUILD_DIR%\bin\*" "%DIST_DIR%\" >nul
+copy /Y "%BUILT_EXE%" "%DIST_DIR%\" >nul
 if errorlevel 1 goto failed
 
 echo.
 echo ===========================================================================
-echo  Build finished: %TOOLCHAIN%, %BUILD_TYPE%
+echo  Build finished: %TOOLCHAIN%, %BUILD_TYPE%, version %VERSION%
 echo ===========================================================================
-if exist "%DIST_DIR%\JustViewMD.exe" (
-    for %%f in ("%DIST_DIR%\JustViewMD.exe") do echo  %%~ff  (%%~zf bytes)
-)
+for %%f in ("%DIST_DIR%\%EXE_NAME%") do echo  %%~ff  (%%~zf bytes)
 echo  Single executable: the front end and the WebView2 loader are inside.
 echo  Unpacked on first run under %%LOCALAPPDATA%%\JustViewMD\.
 echo.
-echo  Optional: "%DIST_DIR%\JustViewMD.exe" --register
+echo  Optional: "%DIST_DIR%\%EXE_NAME%" --register
 echo            adds "Open with JustViewMD" to the Explorer context menu.
 echo ===========================================================================
 exit /b 0
+
+:version_failed
+echo.
+echo The version could not be read from CMakeLists.txt.
+echo Run tools\version.ps1 by hand to see what it reports.
+exit /b 4
+
+:exe_missing
+echo.
+echo The build finished but %EXE_NAME% was not found under "%BUILD_DIR%\bin".
+exit /b 1
 
 :no_toolchain
 echo.

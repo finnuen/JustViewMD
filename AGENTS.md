@@ -16,15 +16,21 @@ the ones that are easy to get wrong.
 
 ## Releases
 
-- A release is a tag `vX.Y.Z` with **one asset: `JustViewMD.exe`**.  The
+- A release is a tag `vX.Y.Z` with **one asset: `JustViewMD_vX.Y.Z.exe`**.  The
   executable is not committed to the repository - `dist/` is ignored and the
   release is the record of a build.
-- The tag, the version in the file properties and the version the application
-  shows all have to agree.  They do because they come from one place:
-  `project(JustViewMD VERSION X.Y.Z ...)` in `CMakeLists.txt`.  CMake writes
-  that out to `version_generated.h`, which `src/app.rc` (the resource version)
-  and `src/main.cpp` (the Options menu and the update check) both include.
-  **Bumping a release is one edit.**
+- The tag, the version in the file properties, the executable's name and the
+  version the application shows all have to agree.  They do because they come
+  from one place: `project(JustViewMD VERSION X.Y.Z ...)` in `CMakeLists.txt`.
+  CMake writes that out to `version_generated.h`, which `src/app.rc` (the
+  resource version and `OriginalFilename`), `src/main.cpp` (the Options menu and
+  the update check) and the target's `OUTPUT_NAME` all use.
+- **The version bumps itself.**  `build.bat` runs `tools/version.ps1`, which adds
+  one to the patch number in that line before configuring.  `--keep-version`
+  rebuilds the number already there and `--version X.Y.Z` sets it outright.
+  Bumping a release is a build, a tag and the upload of the file in `dist\`,
+  never a hand edit of the number.  (A bare `cmake --build` builds whatever
+  number the file holds; releases go through `build.bat`.)
 - The update check reads `releases/latest` of `finnuen/JustViewMD`, so a release
   has to be published (not a draft) before the application can see it.  Release
   tags are `vX.Y.Z`.

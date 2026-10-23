@@ -50,7 +50,7 @@ BEGIN
             VALUE "FileVersion",      JVMD_VERSION_DOTTED
             VALUE "InternalName",     "JustViewMD"
             VALUE "LegalCopyright",   "MIT licensed"
-            VALUE "OriginalFilename", "JustViewMD.exe"
+            VALUE "OriginalFilename", JVMD_VERSION_BINARY
             VALUE "ProductName",      "JustViewMD"
             VALUE "ProductVersion",   JVMD_VERSION_DOTTED
         END

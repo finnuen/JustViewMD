@@ -15,7 +15,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(JustViewMD VERSION 1.0.1 LANGUAGES CXX)
+project(JustViewMD VERSION 1.0.2 LANGUAGES CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "JustViewMD is a Windows desktop application.")
@@ -109,7 +109,9 @@ endif()
 #  here for the resource script (app.rc includes the header) and for main.cpp,
 #  which shows the version in the Options menu and compares it with the
 #  releases published on GitHub.  Bumping a release is therefore one edit, and
-#  the file version, the menu and the update check cannot drift apart.
+#  the file version, the menu and the update check cannot drift apart.  The
+#  executable is named after the same number, so a file on disk says which
+#  release it came from.
 # ---------------------------------------------------------------------------
 
 string(CONCAT _jvmd_version_header
@@ -124,6 +126,8 @@ string(CONCAT _jvmd_version_header
     "#define JVMD_VERSION_DOTTED \"${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}.0\"\n"
     "#define JVMD_VERSION_SHORT \"${PROJECT_VERSION}\"\n"
     "#define JVMD_VERSION_SHORT_WIDE L\"${PROJECT_VERSION}\"\n"
+    "#define JVMD_VERSION_BINARY \"JustViewMD_v${PROJECT_VERSION}.exe\"\n"
+    "#define JVMD_VERSION_BINARY_WIDE L\"JustViewMD_v${PROJECT_VERSION}.exe\"\n"
     "\n"
     "#endif  // JVMD_VERSION_GENERATED_H\n")
 
@@ -233,6 +237,7 @@ endif()
 add_executable(JustViewMD WIN32 ${_jvmd_sources} ${_jvmd_resources})
 
 set_target_properties(JustViewMD PROPERTIES
+    OUTPUT_NAME                               "JustViewMD_v${PROJECT_VERSION}"
     RUNTIME_OUTPUT_DIRECTORY                  "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG            "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE          "${CMAKE_BINARY_DIR}/bin"

@@ -42,8 +42,10 @@
   --backdrop:      rgba(12, 14, 19, 0.72);
   --card-bg:       rgba(24, 26, 33, 0.9);
   --toast-bg:      rgba(30, 33, 42, 0.97);
-  --find-hit:      rgba(110, 168, 254, 0.28);
-  --find-hit-current: rgba(110, 168, 254, 0.55);
+  /* Yellow, like the light theme: a blue wash on the dark editor reads as
+     "the selection colour" and is hard to pick out at a glance. */
+  --find-hit:      rgba(255, 205, 40, 0.32);
+  --find-hit-current: rgba(255, 150, 0, 0.70);
   --tab-active-bg: var(--bg-sunken);
   --tab-inactive-bg: #1b1e26;
 
@@ -59,7 +61,7 @@
 
   --statusbar-height: 26px;
   --menubar-height: 30px;
-  --tabstrip-height: 28px;
+  --tabstrip-height: 25px;
   --tabs-scrollbar-height: 9px;
   --radius: 8px;
 }
@@ -546,6 +548,19 @@ body { display: flex; flex-direction: column; }
 }
 .find-highlight mark.is-current { background: var(--find-hit-current); }
 
+/* The same marks inside the rendered preview.  They are real inline elements
+   there, so the text keeps its own colour and only the background changes. */
+.markdown-body mark.find-hit {
+  background: var(--find-hit);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0;
+}
+.markdown-body mark.find-hit.is-current {
+  background: var(--find-hit-current);
+  box-shadow: 0 0 0 1px var(--find-hit-current);
+}
+
 /* ==========================================================================
    Status bars
    ========================================================================== */
@@ -874,3 +889,124 @@ body { display: flex; flex-direction: column; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ==========================================================================
+   Printing and "Save as PDF"
+
+   The printed document is the rendered preview, never the editor chrome.  An
+   A4/Letter sheet is white paper, so the palette is forced back to the light
+   theme even when the window is dark: the dark one would print pale grey text
+   on white.  Long blocks are allowed to break while short ones are kept whole.
+   ========================================================================== */
+
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    color-scheme: light;
+
+    --bg:            #ffffff;
+    --bg-raised:     #f6f8fa;
+    --bg-sunken:     #ffffff;
+    --bg-hover:      #eaeef2;
+    --bg-active:     #dfe5ea;
+    --border:        #d1d9e0;
+    --border-strong: #afb8c1;
+    --text:          #1f2328;
+    --text-muted:    #59636e;
+    --text-faint:    #6e7781;
+    --accent:        #0969da;
+    --accent-contrast: #ffffff;
+    --accent-soft:   rgba(9, 105, 218, 0.10);
+    --danger:        #cf222e;
+    --danger-soft:   rgba(207, 34, 46, 0.08);
+    --danger-border: rgba(207, 34, 46, 0.35);
+    --success:       #1a7f37;
+
+    --heading-text:  #1f2328;
+    --code-bg:       #f6f8fa;
+    --inline-code-bg: rgba(175, 184, 193, 0.25);
+    --subtle-bg:     rgba(31, 35, 40, 0.03);
+    --stripe-bg:     rgba(31, 35, 40, 0.025);
+    --find-hit:      transparent;
+    --find-hit-current: transparent;
+  }
+
+  html, body {
+    display: block;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    background: #ffffff;
+    color: var(--text);
+  }
+
+  .menubar,
+  .tabstrip,
+  .findbar,
+  .divider,
+  .pane-editor,
+  .statusbar,
+  .drop-overlay,
+  .toast,
+  .menu { display: none !important; }
+
+  .workspace,
+  .pane-preview,
+  .preview-viewport {
+    display: block !important;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+
+  .markdown-body {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    font-size: 11.5pt;
+    line-height: 1.55;
+    color: var(--text);
+  }
+
+  /* Headings keep the text that follows them on the same sheet, and short
+     blocks are never split down the middle. */
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .markdown-body pre,
+  .markdown-body blockquote,
+  .markdown-body table,
+  .markdown-body img,
+  .markdown-body figure,
+  .markdown-body svg {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .markdown-body pre {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .markdown-body img,
+  .markdown-body svg { max-width: 100% !important; height: auto !important; }
+
+  .markdown-body table { width: 100%; }
+
+  /* A printed page has no pointer, so a link has to say where it goes. */
+  .markdown-body a { color: inherit; text-decoration: underline; }
+
+  .markdown-body mark.find-hit {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+

@@ -129,6 +129,7 @@ constexpr wchar_t kFallbackWelcome[] =
     L"Start typing \x2014 the preview updates as you go.\n"
     L"\n"
     L"* **Ctrl+O** open a file, **Ctrl+S** save, **Ctrl+Shift+S** save as.\n"
+    L"* **Ctrl+P** print the document, or save it as a PDF.\n"
     L"* Drop a `.md` file anywhere on this window to open it.\n"
     L"* **Ctrl+plus / Ctrl+minus / Ctrl+0** change the zoom level.\n";
 
@@ -3728,6 +3729,31 @@ public:
     return !path.empty();
 }
 
+// The WebView paints this colour wherever the page itself is transparent.  It
+// is dark so the first paint does not flash white - and it is also the colour
+// Chromium fills the whole sheet with when a PDF is exported with backgrounds
+// on, so exporting has to borrow white paper for the duration of the job.
+void SetWebViewBackgroundColor(COLORREF rgb) {
+    if (!g_app.controller) {
+        return;
+    }
+    ComPtr<ICoreWebView2Controller2> controller2;
+    if (FAILED(g_app.controller->QueryInterface(IID_ICoreWebView2Controller2,
+                                                reinterpret_cast<void**>(controller2.Put())))) {
+        return;
+    }
+    COREWEBVIEW2_COLOR color{};
+    color.A = 255;
+    color.R = GetRValue(rgb);
+    color.G = GetGValue(rgb);
+    color.B = GetBValue(rgb);
+    (void)controller2->put_DefaultBackgroundColor(color);
+}
+
+[[nodiscard]] COLORREF ThemeBackgroundColor() {
+    return g_app.darkMode ? kDarkWindowColor : kLightWindowColor;
+}
+
 void SetupWebViewAfterControllerCreated() {
     ICoreWebView2Controller* controller = g_app.controller.Get();
     ICoreWebView2* webview = g_app.webview.Get();
@@ -3741,17 +3767,9 @@ void SetupWebViewAfterControllerCreated() {
     (void)controller->put_IsVisible(TRUE);
     (void)controller->put_ZoomFactor(g_app.zoomFactor);
 
-    // Dark default background: no white flash before the page paints.
-    ComPtr<ICoreWebView2Controller2> controller2;
-    if (SUCCEEDED(controller->QueryInterface(IID_ICoreWebView2Controller2,
-                                             reinterpret_cast<void**>(controller2.Put())))) {
-        COREWEBVIEW2_COLOR background{};
-        background.A = 255;
-        background.R = GetRValue(kDarkWindowColor);
-        background.G = GetGValue(kDarkWindowColor);
-        background.B = GetBValue(kDarkWindowColor);
-        (void)controller2->put_DefaultBackgroundColor(background);
-    }
+    // Dark default background: no white flash before the page paints.  The
+    // theme decides for good once the settings have been read.
+    SetWebViewBackgroundColor(kDarkWindowColor);
 
     // Browser-shaped affordances are switched off: this is an application, not
     // a browser with a Markdown page in it.
@@ -3978,6 +3996,160 @@ void HandleCloseRequest() {
     }
 }
 
+// ===========================================================================
+//  16. Printing and PDF export
+// ===========================================================================
+
+// ICoreWebView2_16 is where ShowPrintUI lives; PrintToPdf has been there since
+// ICoreWebView2_7 but the pair is asked for together.  A runtime too old for it
+// gets a sentence rather than a menu item that does nothing.
+[[nodiscard]] bool QueryPrintingWebView(ComPtr<ICoreWebView2_16>& view) {
+    if (!g_app.webview) {
+        return false;
+    }
+    if (FAILED(g_app.webview->QueryInterface(IID_ICoreWebView2_16,
+                                             reinterpret_cast<void**>(view.Put())))) {
+        ShowErrorBox(g_app.window,
+                     L"Printing needs a newer Microsoft Edge WebView2 Runtime.\n\n"
+                     L"Update the WebView2 Runtime and try again.");
+        return false;
+    }
+    return true;
+}
+
+// The defaults are Letter paper with the browser's header and footer.  A
+// Markdown document wants its full width and its code block backgrounds, and
+// "page 1 of 3" printed over the text is noise.
+[[nodiscard]] ComPtr<ICoreWebView2PrintSettings> CreatePrintSettings() {
+    ComPtr<ICoreWebView2PrintSettings> settings;
+    ComPtr<ICoreWebView2Environment6> environment;
+    if (!g_app.environment ||
+        FAILED(g_app.environment->QueryInterface(IID_ICoreWebView2Environment6,
+                                                 reinterpret_cast<void**>(environment.Put())))) {
+        return settings;
+    }
+    if (FAILED(environment->CreatePrintSettings(settings.Put()))) {
+        return settings;
+    }
+    (void)settings->put_ShouldPrintBackgrounds(TRUE);
+    (void)settings->put_ShouldPrintHeaderAndFooter(FALSE);
+    (void)settings->put_ShouldPrintSelectionOnly(FALSE);
+    return settings;
+}
+
+class PrintToPdfCompletedHandler final
+    : public ComHandler<PrintToPdfCompletedHandler, ICoreWebView2PrintToPdfCompletedHandler> {
+public:
+    explicit PrintToPdfCompletedHandler(std::wstring path) : m_path(std::move(path)) {}
+
+    static const IID& InterfaceId() noexcept { return IID_ICoreWebView2PrintToPdfCompletedHandler; }
+
+    HRESULT STDMETHODCALLTYPE Invoke(HRESULT errorCode, BOOL succeeded) noexcept override {
+        // White paper was borrowed for the export; the window gets its own
+        // colour back as soon as the job is over, whatever it did.
+        SetWebViewBackgroundColor(ThemeBackgroundColor());
+        if (FAILED(errorCode) || !succeeded) {
+            DebugLog(L"PrintToPdf failed: " + HexValue(errorCode));
+            std::wstring message = L"JustViewMD could not write the PDF:\n\n";
+            message += m_path;
+            message += L"\n\nThe file may be open in another program.";
+            ShowErrorBox(g_app.window, message);
+            return S_OK;
+        }
+        std::wstring message = L"{\"type\":\"toast\",\"text\":\"Saved ";
+        message += JsonEscape(FileNameOf(m_path));
+        message += L"\"}";
+        SendToWeb(message);
+        DebugLog(L"Saved a PDF");
+        return S_OK;
+    }
+
+private:
+    std::wstring m_path;
+};
+
+// "README.md" becomes "README.pdf", which is what the Save dialog offers.
+[[nodiscard]] std::wstring PdfNameForActiveTab() {
+    std::wstring name = L"Document";
+    if (const Tab* tab = ActiveTab(); tab != nullptr) {
+        name = TabNameOf(*tab);
+    }
+    const size_t dot = name.find_last_of(L'.');
+    if (dot != std::wstring::npos && dot > 0) {
+        name.erase(dot);
+    }
+    return name + L".pdf";
+}
+
+[[nodiscard]] bool ShowPdfSaveDialog(std::wstring& path) {
+    wchar_t buffer[32768] = {};
+    const std::wstring seed = PdfNameForActiveTab();
+    (void)::wcsncpy_s(buffer, ARRAYSIZE(buffer), seed.c_str(), _TRUNCATE);
+
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = g_app.window;
+    dialog.lpstrFilter = L"PDF (*.pdf)\0*.pdf\0All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = buffer;
+    dialog.nMaxFile = ARRAYSIZE(buffer);
+    dialog.lpstrDefExt = L"pdf";
+    dialog.lpstrTitle = L"Save as PDF";
+    dialog.lpstrInitialDir = g_lastDirectory.empty() ? nullptr : g_lastDirectory.c_str();
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_DONTADDTORECENT |
+                   OFN_NOCHANGEDIR;
+
+    if (!::GetSaveFileNameW(&dialog)) {
+        return false;
+    }
+    path.assign(buffer);
+    return true;
+}
+
+// The system print dialog prints whatever the page's print stylesheet makes of
+// the document: the preview, without the application chrome.
+void PrintPreview() {
+    ComPtr<ICoreWebView2_16> view;
+    if (!QueryPrintingWebView(view)) {
+        return;
+    }
+    const HRESULT result = view->ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER);
+    if (FAILED(result)) {
+        DebugLog(L"ShowPrintUI failed: " + HexValue(result));
+        ShowErrorBox(g_app.window, L"JustViewMD could not open the print dialog.");
+        return;
+    }
+    DebugLog(L"Print dialog opened");
+}
+
+void ExportPdf() {
+    ComPtr<ICoreWebView2_16> view;
+    if (!QueryPrintingWebView(view)) {
+        return;
+    }
+    std::wstring target;
+    if (!ShowPdfSaveDialog(target)) {
+        return;
+    }
+    ComPtr<ICoreWebView2PrintSettings> settings = CreatePrintSettings();
+    // With backgrounds printed, Chromium fills every sheet with the WebView's
+    // default background colour before it draws the document.  That is the
+    // dark window colour in dark mode, and it shows as a dark band around the
+    // page: the export gets white paper and the window gets its colour back in
+    // the completion handler.
+    SetWebViewBackgroundColor(kLightWindowColor);
+    auto* handler = new PrintToPdfCompletedHandler(target);
+    const HRESULT result = view->PrintToPdf(target.c_str(), settings.Get(), handler);
+    handler->Release();  // the call holds its own reference
+    if (FAILED(result)) {
+        SetWebViewBackgroundColor(ThemeBackgroundColor());
+        DebugLog(L"PrintToPdf failed to start: " + HexValue(result));
+        ShowErrorBox(g_app.window, L"JustViewMD could not start writing the PDF.");
+        return;
+    }
+    RememberDirectoryOf(target);
+    DebugLog(L"Exporting a PDF");
+}
+
 void HandleWebMessage(const std::wstring& json) {
     const JsonReader reader(json);
     const std::wstring type = reader.GetString(L"type");
@@ -4151,6 +4323,14 @@ void HandleWebMessage(const std::wstring& json) {
     }
     if (type == L"zoomReset") {
         ApplyZoom(1.0);
+        return;
+    }
+    if (type == L"print") {
+        PrintPreview();
+        return;
+    }
+    if (type == L"exportPdf") {
+        ExportPdf();
         return;
     }
     if (type == L"fetchImage") {
@@ -4465,24 +4645,7 @@ void ApplyWindowTheme() {
         (void)::SendMessageW(g_app.window, WM_NCACTIVATE, FALSE, 0);
     }
 
-    if (g_app.controller) {
-        ComPtr<ICoreWebView2Controller2> controller2;
-        if (SUCCEEDED(g_app.controller->QueryInterface(
-                IID_ICoreWebView2Controller2, reinterpret_cast<void**>(controller2.Put())))) {
-            COREWEBVIEW2_COLOR color{};
-            color.A = 255;
-            if (g_app.darkMode) {
-                color.R = GetRValue(kDarkWindowColor);
-                color.G = GetGValue(kDarkWindowColor);
-                color.B = GetBValue(kDarkWindowColor);
-            } else {
-                color.R = 255;
-                color.G = 255;
-                color.B = 255;
-            }
-            (void)controller2->put_DefaultBackgroundColor(color);
-        }
-    }
+    SetWebViewBackgroundColor(ThemeBackgroundColor());
 }
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
