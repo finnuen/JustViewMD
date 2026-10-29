@@ -751,7 +751,7 @@
     return 'Cached images: ' + (bytes > 0 ? formatBytes(bytes) : 'none');
   }
 
-  // The host checks the releases on GitHub when the window opens and whenever
+  // The host checks the release feed when the window opens and whenever
   // the Options menu asks, and it reports where the check stands.  This is only
   // ever a menu row and a toast: the start-up check never interrupts.
   var updateState = null;  // { state, current, latest, url, message, asked }
@@ -788,6 +788,11 @@
 
   function renderNow() {
     var source = editor.value;
+    // In the preview-only view the editor is off screen, and a hidden textarea
+    // cannot hold a scroll position: syncing the preview from it would send the
+    // reader back to the top on every re-render (a theme change, a reload).
+    // The preview's own place is kept instead.
+    var keepPreviewTop = state.settings.viewMode === 'preview' ? previewViewport.scrollTop : null;
     state.heavy = source.length > HEAVY_SOURCE_BYTES;
     setRenderStatus(state.heavy ? 'Large document' : 'Rendering\u2026', 'busy');
 
@@ -812,7 +817,12 @@
     // the gutter correct even when the page is not being painted (occluded or
     // minimised windows do not run animation frames).
     renderGutter();
-    syncScrollFrom(editor);
+    if (keepPreviewTop === null) {
+      syncScrollFrom(editor);
+    } else {
+      previewViewport.scrollTop = keepPreviewTop;
+      programmatic.preview = previewViewport.scrollTop;
+    }
     if (find.open) {
       // The text changed under the search: re-match so the highlights and the
       // counter stay true, and repaint them on the fresh layout.
@@ -1363,7 +1373,15 @@
       editor.setSelectionRange(tab.selStart, Math.max(tab.selStart, tab.selEnd));
     }
     renderNow();
+    if (state.settings.viewMode === 'preview') {
+      // The offset was set while the previous document was still on screen, so
+      // it was clamped to that document's height.  renderNow() kept whatever it
+      // could; now the new document has its real height, the tab's own place is
+      // applied again.
+      previewViewport.scrollTop = tab.previewTop;
+    }
     programmatic.editor = editor.scrollTop;
+    programmatic.preview = previewViewport.scrollTop;
     updateTabStrip();
     updateFileStatus();
     if (find.open) {
@@ -2809,15 +2827,25 @@ function collapseTabs(keep) {
         startOnLoad: false,
         securityLevel: 'strict',
         theme: dark ? 'dark' : 'default',
+        /* The dark palette, the same colours the preview uses: muted canvas,
+           a raised box, its usual border and accent.  textColor is what
+           Mermaid paints edge labels with; without it they come out
+           near-black on the dark page. */
         themeVariables: dark ? {
           darkMode: true,
-          background: '#1b1e26',
-          primaryColor: '#2b3242',
-          primaryTextColor: '#e6e8ee',
-          primaryBorderColor: '#3a4254',
-          lineColor: '#8b93a7',
-          secondaryColor: '#333a4a',
-          tertiaryColor: '#242833'
+          background: '#151b23',
+          primaryColor: '#212830',
+          primaryTextColor: '#f0f6fc',
+          primaryBorderColor: '#3d444d',
+          lineColor: '#9198a1',
+          secondaryColor: '#2a313c',
+          tertiaryColor: '#0d1117',
+          textColor: '#f0f6fc',
+          mainBkg: '#212830',
+          nodeBorder: '#3d444d',
+          edgeLabelBackground: '#0d1117',
+          clusterBkg: '#151b23',
+          clusterBorder: '#3d444d'
         } : {
           darkMode: false,
           background: '#f6f8fa',

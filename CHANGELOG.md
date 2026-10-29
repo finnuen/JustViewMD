@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.4
+
+* The dark theme has a new palette.  The window, the tabs, the editor and the
+  rendered preview use a near-black canvas (`#0d1117`) and slightly lighter
+  surfaces (`#151b23`), borders at `#3d444d`, text at `#f0f6fc`, muted text at
+  `#9198a1` and a blue accent at `#4493f8` instead of the previous blue-grey
+  palette.  The title bar and the WebView's first paint carry the same canvas
+  colour, so nothing flashes a different shade while a document opens.
+* Fenced code blocks are highlighted to match (comments muted, keywords red,
+  strings pale blue, numbers blue, functions violet, tags green), and Mermaid
+  diagrams use the same palette as the rest of the preview.
+* Printing and *Save as PDF…* from the dark theme keep the light syntax colours
+  as well as the light page palette, so a dark window still prints a legible
+  document.
+* Switching the theme no longer scrolls the preview back to the top; the reader
+  stays where they were.
+* The light theme is untouched.
+
 ## 1.0.3
 
 * Markdown files keep the document icon, and the executable keeps its own.

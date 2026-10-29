@@ -15,7 +15,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(JustViewMD VERSION 1.0.3 LANGUAGES CXX)
+project(JustViewMD VERSION 1.0.4 LANGUAGES CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "JustViewMD is a Windows desktop application.")
@@ -108,7 +108,7 @@ endif()
 #  project(... VERSION ...) above is that place.  The numbers are written out
 #  here for the resource script (app.rc includes the header) and for main.cpp,
 #  which shows the version in the Options menu and compares it with the
-#  releases published on GitHub.  Bumping a release is therefore one edit, and
+#  release feed.  Bumping a release is therefore one edit, and
 #  the file version, the menu and the update check cannot drift apart.  The
 #  executable is named after the same number, so a file on disk says which
 #  release it came from.

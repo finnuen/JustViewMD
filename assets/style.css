@@ -2,52 +2,58 @@
    JustViewMD - application chrome and preview theme
    Two themes, driven entirely by the custom properties below: every colour in
    this file comes from a variable, so switching data-theme on <html> repaints
-   the whole application.  The dark palette is deliberately close to GitHub's
-   dark Markdown styling, the light one to GitHub's light styling.
+   the whole application.  The dark palette is a neutral dark scheme and the
+   light one a neutral light scheme; printing uses the light one.
    ========================================================================== */
 
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg:            #181a21;
-  --bg-raised:     #1e212a;
-  --bg-sunken:     #14161c;
-  --bg-hover:      #262a35;
-  --bg-active:     #2d3240;
-  --border:        #2b2f3a;
-  --border-strong: #3a3f4d;
-  --text:          #e6e8ee;
-  --text-muted:    #9aa1b1;
-  --text-faint:    #6f7686;
-  --accent:        #6ea8fe;
-  --accent-contrast: #10131a;
-  --accent-soft:   rgba(110, 168, 254, 0.14);
-  --danger:        #f2777a;
-  --danger-soft:   rgba(242, 119, 122, 0.10);
-  --danger-border: rgba(242, 119, 122, 0.45);
-  --success:       #7fd18b;
+  /* The dark palette: canvas #0d1117, muted surfaces #151b23, border
+     #3d444d, text #f0f6fc, muted text #9198a1, accent #4493f8.  The same
+     names as the light palette below, so everything that reads a variable
+     follows the theme without knowing which one it is. */
+  --bg:            #0d1117;
+  --bg-raised:     #151b23;
+  /* The editor and the inputs sit on the canvas: the separation comes from
+     the border and the gutter, not from a darker fill. */
+  --bg-sunken:     #0d1117;
+  --bg-hover:      #262c36;
+  --bg-active:     #2a313c;
+  --border:        #3d444d;
+  --border-strong: #656c76;
+  --text:          #f0f6fc;
+  --text-muted:    #9198a1;
+  --text-faint:    #656c76;
+  --accent:        #4493f8;
+  --accent-contrast: #ffffff;
+  --accent-soft:   rgba(56, 139, 253, 0.10);
+  --danger:        #f85149;
+  --danger-soft:   rgba(248, 81, 73, 0.10);
+  --danger-border: rgba(248, 81, 73, 0.45);
+  --success:       #3fb950;
 
-  --heading-text:  #ffffff;
-  --code-bg:       #1b1e26;
-  --inline-code-bg: rgba(255, 255, 255, 0.07);
-  --subtle-bg:     rgba(255, 255, 255, 0.02);
-  --stripe-bg:     rgba(255, 255, 255, 0.025);
-  --gutter-shade:  rgba(0, 0, 0, 0.18);
-  --selection-bg:  rgba(110, 168, 254, 0.32);
-  --scrollbar:     #3a4050;
-  --scrollbar-hover: #4c5468;
-  --shadow-soft:   rgba(0, 0, 0, 0.35);
-  --shadow-strong: rgba(0, 0, 0, 0.5);
-  --backdrop:      rgba(12, 14, 19, 0.72);
-  --card-bg:       rgba(24, 26, 33, 0.9);
-  --toast-bg:      rgba(30, 33, 42, 0.97);
+  --heading-text:  #f0f6fc;
+  --code-bg:       #151b23;
+  --inline-code-bg: rgba(101, 108, 118, 0.20);
+  --subtle-bg:     rgba(240, 246, 252, 0.02);
+  --stripe-bg:     rgba(240, 246, 252, 0.02);
+  --gutter-shade:  rgba(1, 4, 9, 0.35);
+  --selection-bg:  rgba(31, 111, 235, 0.70);
+  --scrollbar:     #3d444d;
+  --scrollbar-hover: #656c76;
+  --shadow-soft:   rgba(1, 4, 9, 0.40);
+  --shadow-strong: rgba(1, 4, 9, 0.60);
+  --backdrop:      rgba(1, 4, 9, 0.72);
+  --card-bg:       rgba(21, 27, 35, 0.95);
+  --toast-bg:      rgba(21, 27, 35, 0.97);
   /* Yellow, like the light theme: a blue wash on the dark editor reads as
      "the selection colour" and is hard to pick out at a glance. */
   --find-hit:      rgba(255, 205, 40, 0.32);
   --find-hit-current: rgba(255, 150, 0, 0.70);
-  --tab-active-bg: var(--bg-sunken);
-  --tab-inactive-bg: #1b1e26;
+  --tab-active-bg: #0d1117;
+  --tab-inactive-bg: #11161d;
 
   --editor-font: "Cascadia Mono", "Cascadia Code", Consolas, "JetBrains Mono", "SF Mono", Menlo, monospace;
   --ui-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -664,8 +670,13 @@ body { display: flex; flex-direction: column; }
   background-color: var(--accent);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.6 8.6l3 3 5.8-7'/%3E%3C/svg%3E");
 }
-:root[data-theme="dark"] .markdown-body input[type="checkbox"]:checked {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2310131a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.6 8.6l3 3 5.8-7'/%3E%3C/svg%3E");
+/* The tick is dark on the light theme's deeper blue and white on the dark
+   theme's brighter one.  Screen only: the printed page is forced back to the
+   light palette, so it needs the white tick even from a dark window. */
+@media screen {
+  :root[data-theme="dark"] .markdown-body input[type="checkbox"]:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2310131a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.6 8.6l3 3 5.8-7'/%3E%3C/svg%3E");
+  }
 }
 .markdown-body li.task-list-item { list-style: none; }
 

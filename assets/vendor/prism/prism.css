@@ -1,1 +1,23 @@
-code[class*=language-],pre[class*=language-]{color:#ccc;background:0 0;font-family:Consolas,Monaco,'Andale Mono','Ubuntu Mono',monospace;font-size:1em;text-align:left;white-space:pre;word-spacing:normal;word-break:normal;word-wrap:normal;line-height:1.5;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-hyphens:none;-moz-hyphens:none;-ms-hyphens:none;hyphens:none}pre[class*=language-]{padding:1em;margin:.5em 0;overflow:auto}:not(pre)>code[class*=language-],pre[class*=language-]{background:#2d2d2d}:not(pre)>code[class*=language-]{padding:.1em;border-radius:.3em;white-space:normal}.token.block-comment,.token.cdata,.token.comment,.token.doctype,.token.prolog{color:#999}.token.punctuation{color:#ccc}.token.attr-name,.token.deleted,.token.namespace,.token.tag{color:#e2777a}.token.function-name{color:#6196cc}.token.boolean,.token.function,.token.number{color:#f08d49}.token.class-name,.token.constant,.token.property,.token.symbol{color:#f8c555}.token.atrule,.token.builtin,.token.important,.token.keyword,.token.selector{color:#cc99cd}.token.attr-value,.token.char,.token.regex,.token.string,.token.variable{color:#7ec699}.token.entity,.token.operator,.token.url{color:#67cdcc}.token.bold,.token.important{font-weight:700}.token.italic{font-style:italic}.token.entity{cursor:help}.token.inserted{color:green}
+/* Syntax highlighting for the dark theme: comments and punctuation muted,
+   keywords red, strings pale blue, numbers and constants blue, functions
+   violet, tags green.  The block itself has no background of its own: the
+   preview's --code-bg paints it. */
+code[class*=language-],pre[class*=language-]{color:#f0f6fc;background:0 0;font-family:Consolas,Monaco,'Andale Mono','Ubuntu Mono',monospace;font-size:1em;text-align:left;white-space:pre;word-spacing:normal;word-break:normal;word-wrap:normal;line-height:1.5;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-hyphens:none;-moz-hyphens:none;-ms-hyphens:none;hyphens:none}code[class*=language-] ::-moz-selection,code[class*=language-]::-moz-selection,pre[class*=language-] ::-moz-selection,pre[class*=language-]::-moz-selection{background:rgba(31,111,235,.70)}code[class*=language-] ::selection,code[class*=language-]::selection,pre[class*=language-] ::selection,pre[class*=language-]::selection{background:rgba(31,111,235,.70)}pre[class*=language-]{padding:1em;margin:.5em 0;overflow:auto}:not(pre)>code[class*=language-],pre[class*=language-]{background:0 0}:not(pre)>code[class*=language-]{padding:.1em;border-radius:.3em;white-space:normal}.token.block-comment,.token.cdata,.token.comment,.token.doctype,.token.prolog{color:#9198a1}.token.punctuation{color:#f0f6fc}.token.attr-name,.token.boolean,.token.constant,.token.deleted,.token.number,.token.property,.token.symbol{color:#79c0ff}.token.important,.token.keyword{color:#ff7b72}.token.atrule{color:#ff7b72}.token.attr-value,.token.char,.token.regex,.token.string{color:#a5d6ff}.token.inserted,.token.tag,.token.selector{color:#7ee787}.token.function,.token.class-name{color:#d2a8ff}.token.builtin,.token.variable{color:#ffa657}.token.namespace{color:#f0f6fc;opacity:.7}.token.entity,.token.operator,.token.url,.language-css .token.string,.style .token.string{color:#79c0ff}.token.bold,.token.important{font-weight:700}.token.italic{font-style:italic}.token.entity{cursor:help}
+
+/* The print stylesheet forces the light palette (a sheet is white paper), so
+   the syntax colours follow it: the light syntax colours, on the light code
+   background.  Without this a dark window would print pale grey text. */
+@media print{
+  code[class*=language-],pre[class*=language-]{color:#1f2328}
+  .token.block-comment,.token.cdata,.token.comment,.token.doctype,.token.prolog{color:#6e7781}
+  .token.punctuation{color:#1f2328}
+  .token.attr-name,.token.boolean,.token.constant,.token.number,.token.property,.token.symbol{color:#0550ae}
+  .token.keyword,.token.atrule,.token.important{color:#cf222e}
+  .token.attr-value,.token.char,.token.regex,.token.string{color:#0a3069}
+  .token.tag,.token.selector,.token.inserted{color:#116329}
+  .token.deleted{color:#82071e}
+  .token.function,.token.class-name{color:#8250df}
+  .token.builtin,.token.variable{color:#953800}
+  .token.namespace{color:#1f2328}
+  .token.entity,.token.operator,.token.url,.language-css .token.string,.style .token.string{color:#0550ae}
+}

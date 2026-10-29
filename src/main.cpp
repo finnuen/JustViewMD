@@ -96,9 +96,9 @@ constexpr size_t  kMaxImageBytes      = 32u * 1024u * 1024u;  // per picture
 constexpr size_t  kMaxImageDownloads  = 4;                    // at the same time
 constexpr UINT    kImageDownloadedMessage = WM_APP + 1;
 
-// The releases published on GitHub are where a newer version comes from.  The
-// check behind them is the only request this program makes besides the pictures
-// a document asks for; like those it is made by the host, never by the page.
+// The release feed is where a newer version comes from.  The check behind it is
+// the only request this program makes besides the pictures a document asks for;
+// like those it is made by the host, never by the page.
 constexpr wchar_t kReleasesApiUrl[]  = L"https://api.github.com/repos/finnuen/JustViewMD/releases/latest";
 constexpr wchar_t kReleasesPageUrl[] = L"https://github.com/finnuen/JustViewMD/releases/latest";
 constexpr size_t  kMaxReleaseBytes   = 256u * 1024u;  // the answer is a few kB
@@ -165,8 +165,10 @@ constexpr wchar_t kTargetBrowserVersion[] = L"154.0.4258.31";
 // take care of the gaps that leaves behind.
 constexpr wchar_t kOldestBrowserVersion[] = L"85.0.564.0";
 
-// Window colours (BGR for DWM, RGB for GDI).
-constexpr COLORREF kDarkWindowColor  = RGB(0x18, 0x1A, 0x21);
+// Window colours (BGR for DWM, RGB for GDI).  The dark one is the #0d1117 the
+// page paints, so the title bar, the window brush and the WebView's first paint
+// all meet the page's background exactly.
+constexpr COLORREF kDarkWindowColor  = RGB(0x0D, 0x11, 0x17);
 constexpr COLORREF kLightWindowColor = RGB(0xFF, 0xFF, 0xFF);
 
 // DWM attributes: 20 is the current value for the dark title bar, 19 was used
@@ -2735,10 +2737,10 @@ void OpenImageCacheFolder() {
 
 // --- The update check ---------------------------------------------------------
 //
-// The releases published on GitHub are the only place a newer version can come
-// from, so that is what the check reads.  It is a single GET of the public
-// releases API and sends nothing but the request itself: no account, no
-// identifier, and not even the version in use.  It runs in the background when
+// The release feed is the only place a newer version can come from, so that is
+// what the check reads.  It is a single GET of the public releases API and sends
+// nothing but the request itself: no account, no identifier, and not even the
+// version in use.  It runs in the background when
 // the window opens and never interrupts - what it found is remembered and shown
 // in the Options menu.  Only a check the user asked for reports itself on
 // screen, and even that is a toast rather than a dialog.
@@ -2881,7 +2883,7 @@ void UpdateCheckFinished(const UpdateCheckResult& result) {
 void RequestUpdateCheck(bool asked) {
     if (g_app.updateCheckRunning) {
         // One check at a time.  The one in flight can answer the user instead of
-        // asking GitHub twice; if it answers before the question arrives, the
+        // asking the feed twice; if it answers before the question arrives, the
         // question has still been recorded and is answered below.
         g_app.updateAsked = g_app.updateAsked || asked;
         return;
@@ -2899,8 +2901,8 @@ void RequestUpdateCheck(bool asked) {
     std::thread(UpdateCheckThread, asked).detach();
 }
 
-// Where "Get JustViewMD x.y.z" leads: the release page on GitHub, opened in the
-// reader's own browser.  Nothing is downloaded or run by this program.
+// Where "Get JustViewMD x.y.z" leads: the release page, opened in the reader's
+// own browser.  Nothing is downloaded or run by this program.
 void OpenReleasePage() {
     const std::wstring url = g_app.updateUrl.empty() ? std::wstring(kReleasesPageUrl)
                                                      : g_app.updateUrl;
