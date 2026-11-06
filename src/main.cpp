@@ -2986,6 +2986,10 @@ void UpdateWindowTitle() {
     }
     title += L" - ";
     title += kAppName;
+    // The release is downloaded as JustViewMD.exe, without a version in its
+    // name, so the window title is where the user reads which build is running.
+    title += L" v";
+    title += kAppVersion;
     ::SetWindowTextW(g_app.window, title.c_str());
 }
 

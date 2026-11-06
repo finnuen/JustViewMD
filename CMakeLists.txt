@@ -15,7 +15,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(JustViewMD VERSION 1.0.4 LANGUAGES CXX)
+project(JustViewMD VERSION 1.0.5 LANGUAGES CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "JustViewMD is a Windows desktop application.")
@@ -107,11 +107,12 @@ endif()
 #
 #  project(... VERSION ...) above is that place.  The numbers are written out
 #  here for the resource script (app.rc includes the header) and for main.cpp,
-#  which shows the version in the Options menu and compares it with the
-#  release feed.  Bumping a release is therefore one edit, and
-#  the file version, the menu and the update check cannot drift apart.  The
-#  executable is named after the same number, so a file on disk says which
-#  release it came from.
+#  which shows the version in the title bar and the Options menu and compares
+#  it with the release feed.  Bumping a release is therefore one edit, and
+#  the file version, the title bar and the update check cannot drift apart.  The
+#  build is named after the same number, so a file on disk says which build it
+#  is; the release drops the version from the name (see AGENTS.md), which is why
+#  OriginalFilename is the unversioned shipping name.
 # ---------------------------------------------------------------------------
 
 string(CONCAT _jvmd_version_header
@@ -126,8 +127,8 @@ string(CONCAT _jvmd_version_header
     "#define JVMD_VERSION_DOTTED \"${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}.0\"\n"
     "#define JVMD_VERSION_SHORT \"${PROJECT_VERSION}\"\n"
     "#define JVMD_VERSION_SHORT_WIDE L\"${PROJECT_VERSION}\"\n"
-    "#define JVMD_VERSION_BINARY \"JustViewMD_v${PROJECT_VERSION}.exe\"\n"
-    "#define JVMD_VERSION_BINARY_WIDE L\"JustViewMD_v${PROJECT_VERSION}.exe\"\n"
+    "#define JVMD_VERSION_BINARY \"JustViewMD.exe\"\n"
+    "#define JVMD_VERSION_BINARY_WIDE L\"JustViewMD.exe\"\n"
     "\n"
     "#endif  // JVMD_VERSION_GENERATED_H\n")
 

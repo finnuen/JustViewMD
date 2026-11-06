@@ -2,7 +2,7 @@
 
 **A Markdown editor and live preview for Windows in one 5 MB executable.**
 
-Download the newest `JustViewMD_v<version>.exe`, double-click it, drop a `.md` file on the window, and
+Download the newest `JustViewMD.exe`, double-click it, drop a `.md` file on the window, and
 you are editing and previewing at once. GitHub Flavored Markdown, KaTeX math,
 Mermaid diagrams and Prism syntax highlighting are all there, and the front end
 that renders them - along with every library it uses - is compiled into the
@@ -30,7 +30,7 @@ both made by the host, never by the page (see
 | At a glance | |
 | --- | --- |
 | **What it is** | A Markdown editor with a live preview, for Windows |
-| **Download** | One file, `JustViewMD_v<version>.exe`, about 5 MB (x64) - no installer, nothing to unpack |
+| **Download** | One file, `JustViewMD.exe`, about 5 MB (x64) - no installer, nothing to unpack |
 | **Runs on** | Windows 10 1809 or newer, Windows 11; ARM64 builds from source |
 | **Needs** | The Microsoft Edge **WebView2 Runtime**, which ships with Windows |
 | **Markdown** | GitHub Flavored Markdown: tables, task lists, footnotes, strikethrough, autolinks |
@@ -43,7 +43,7 @@ both made by the host, never by the page (see
 
 ## Download
 
-Take `JustViewMD_v<version>.exe` from the
+Take `JustViewMD.exe` from the
 [latest release](https://github.com/finnuen/JustViewMD/releases/latest). There is
 no installer and nothing to unpack: the executable contains the whole
 application, including its front end. Put it wherever you like and run it.
@@ -172,7 +172,8 @@ application, including its front end. Put it wherever you like and run it.
   the page cannot navigate away from the document being edited. Text selections
   can be dropped too and are inserted at the cursor.
 * The title bar shows the active file name, with `*` while there are unsaved
-  changes; the active tab carries a dot.
+  changes, and the version in use (`README.md - JustViewMD v1.0.5`); the active
+  tab carries a dot.
 * Unsaved changes are confirmed before anything that would discard them,
   including closing the window, closing a tab and reloading from disk.
 * **Keep opened files** (Options menu, off by default): the documents open at
@@ -299,18 +300,21 @@ build\bin\JustViewMD_v<version>.exe --assets assets
 
 ## Releasing
 
-A release is a tag `vX.Y.Z` with `JustViewMD_vX.Y.Z.exe` as its only asset. The
-version lives in exactly one place: the `project(JustViewMD VERSION X.Y.Z ...)`
-line in `CMakeLists.txt`.
+A release is a tag `vX.Y.Z` with `JustViewMD.exe` as its only asset. The version
+lives in exactly one place: the `project(JustViewMD VERSION X.Y.Z ...)` line in
+`CMakeLists.txt`.
 
 `tools/version.ps1` edits that one line - `build.bat` calls it before it
 configures, and it adds one to the patch number unless `--keep-version` or
 `--version` says otherwise. CMake writes the number out to a generated header
 that the resource script (the version in the file's properties), the host (the
-Options menu, the update check and `--help`) and the executable's name all use,
-so the tag, the file properties, the binary name and what the application reports
-cannot drift apart. Bumping a release is `build.bat`, a tag, and publishing the
-file it left in `dist\`.
+window title, the Options menu, the update check and `--help`) and the build's
+file name all use, so the tag, the file properties, the title bar and what the
+application reports cannot drift apart. Bumping a release is `build.bat`,
+a tag, and publishing the file it left in `dist\` under the name
+`JustViewMD.exe`: the build keeps its version in `JustViewMD_vX.Y.Z.exe`, and the
+release drops the version so the download can replace an older copy in place and
+keep its "Open with" entry and default-app choice.
 
 If you are changing this repository rather than just using it, read
 [AGENTS.md](AGENTS.md) first.

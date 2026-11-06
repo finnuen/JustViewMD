@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.5
+
+* Find marks every match on the preview's scrollbar, the way a browser does: a
+  short bar for each match at the height it has in the document, with the
+  current one taller and brighter. Clicking a bar goes to that match and leaves
+  the focus in the find box, so typing can carry on; the marks go away when the
+  find bar closes. A document with more matches than the bar can keep apart
+  shows an evenly sampled subset instead of one solid line.
+* The window title names the version (`JustViewMD v1.0.5`). A release is
+  downloaded as `JustViewMD.exe` with no version in the file name, so an update
+  replaces the old copy in place and keeps its "Open with" entry and default-app
+  choice; the title bar is where the version is read instead.
+
 ## 1.0.4
 
 * The dark theme has a new palette.  The window, the tabs, the editor and the

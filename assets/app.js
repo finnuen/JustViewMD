@@ -74,6 +74,8 @@
   var replaceAllButton = document.getElementById('replaceAll');
   var findCloseButton = document.getElementById('findClose');
   var findHighlightInner = document.getElementById('findHighlightInner');
+  var findScroller = document.getElementById('findScroller');
+  var previewPane = document.getElementById('previewPane');
   var prismDarkLink = document.getElementById('prismDark');
   var prismLightLink = document.getElementById('prismLight');
 
@@ -2036,8 +2038,14 @@ function collapseTabs(keep) {
   // Paints the query into the rendered preview with the same pattern the source
   // scan uses, so case, whole word and regular expression behave identically in
   // both panes.  The nodes are collected before anything is replaced: mutating
-  // while walking would confuse the walker.
+  // while walking would confuse the walker.  The scrollbar's marks are redrawn
+  // from whatever the marks ended up being, so the two cannot drift apart.
   function paintPreviewFindHits() {
+    paintPreviewFindHitMarks();
+    updateFindTicks();
+  }
+
+  function paintPreviewFindHitMarks() {
     clearPreviewFindHits();
     if (!find.open || !find.query || find.invalid || !find.matches.length) {
       return;
@@ -2072,6 +2080,86 @@ function collapseTabs(keep) {
     }
   }
 
+  // Past this many marks the bars would touch and read as one solid line, and
+  // measuring each of them starts to cost more than the bar is worth.  Every
+  // nth match is kept instead, and the last one, so the bar still ends where
+  // the document does.
+  var MAX_FIND_TICKS = 300;
+
+  // Draws one bar per match along the preview's scrollbar, at the height that
+  // match has in the document, the way a browser marks where its finds are.
+  // The bars come from the marks the preview actually painted, so the bar never
+  // points at a match the page does not show; they take clicks only when the
+  // two lists agree on the order, which is also when one of them is the current
+  // match.
+  function updateFindTicks() {
+    findScroller.textContent = '';
+    findScroller.hidden = true;
+    if (!find.open || !previewFindHits.length || state.settings.viewMode === 'editor') {
+      return;
+    }
+    var track = previewViewport.clientHeight;
+    var total = previewViewport.scrollHeight;
+    if (!track || !total) {
+      return;
+    }
+
+    var step = Math.ceil(previewFindHits.length / MAX_FIND_TICKS);
+    var places = [];
+    for (var index = 0; index < previewFindHits.length; index += step) {
+      places.push(index);
+    }
+    var last = previewFindHits.length - 1;
+    if (places[places.length - 1] !== last) {
+      places.push(last);
+    }
+
+    // Every position is read before a single node is written, so the document
+    // is laid out once rather than once per mark.
+    var origin = previewViewport.getBoundingClientRect().top - previewViewport.scrollTop;
+    var offsets = [];
+    for (index = 0; index < places.length; index++) {
+      offsets.push(previewFindHits[places[index]].getBoundingClientRect().top - origin);
+    }
+
+    var clickable = previewFindHits.length === find.matches.length;
+    var fragment = document.createDocumentFragment();
+    for (index = 0; index < places.length; index++) {
+      var tick = document.createElement('div');
+      var isCurrent = clickable && places[index] === previewFindCurrent;
+      tick.className = 'find-tick' + (isCurrent ? ' is-current' : '');
+      tick.style.top = clamp(offsets[index] / total * track, 0, track - 3).toFixed(1) + 'px';
+      if (clickable) {
+        tick.dataset.match = String(places[index]);
+        tick.title = 'Match ' + (places[index] + 1) + ' of ' + find.matches.length;
+      }
+      fragment.appendChild(tick);
+    }
+
+    // The layer starts where the viewport does, so its top edge is the top of
+    // the scrollbar's track and its height is the track's own height: a
+    // horizontal scrollbar shortens both, and the bars stay inside.
+    findScroller.style.top = (previewViewport.getBoundingClientRect().top -
+                              previewPane.getBoundingClientRect().top) + 'px';
+    findScroller.style.height = track + 'px';
+    findScroller.appendChild(fragment);
+    findScroller.hidden = false;
+  }
+
+  // Rebuilding the bars measures every mark, and a window resize drags out one
+  // layout per frame.  A burst of changes is collapsed into a single redraw on
+  // the next frame rather than one redraw per change.
+  var findTickFrame = 0;
+  function scheduleFindTicks() {
+    if (findTickFrame) {
+      return;
+    }
+    findTickFrame = requestAnimationFrame(function () {
+      findTickFrame = 0;
+      updateFindTicks();
+    });
+  }
+
   // Brings the preview to the current match.  The painted marks line up with the
   // source matches in the normal case; when they do not (a match split across
   // inline markup), the block the match starts on is scrolled to instead.
@@ -2098,7 +2186,9 @@ function collapseTabs(keep) {
     programmatic.preview = previewViewport.scrollTop;
   }
 
-  function goToMatch(index) {
+  // Moves to a match.  focusEditor is false when the move comes from the
+  // scrollbar: the find box keeps the focus, so the user can carry on typing.
+  function goToMatch(index, focusEditor) {
     var count = find.matches.length;
     if (!count) {
       return;
@@ -2109,10 +2199,12 @@ function collapseTabs(keep) {
     // pull focus out of the find box (so typing would stop) and scrolling it
     // would move something the user cannot see.  The preview follows instead.
     if (state.settings.viewMode !== 'preview') {
-      try {
-        editor.focus({ preventScroll: true });
-      } catch (error) {
-        editor.focus();
+      if (focusEditor !== false) {
+        try {
+          editor.focus({ preventScroll: true });
+        } catch (error) {
+          editor.focus();
+        }
       }
       editor.setSelectionRange(match.start, match.end);
       computeMetrics();
@@ -2273,6 +2365,7 @@ function collapseTabs(keep) {
     find.current = -1;
     findHighlightInner.textContent = '';
     clearPreviewFindHits();
+    updateFindTicks();
     if (state.settings.viewMode !== 'preview' &&
         (document.activeElement === findInput || document.activeElement === replaceInput)) {
       editor.focus();
@@ -2927,6 +3020,7 @@ function collapseTabs(keep) {
     requestAnimationFrame(function () {
       renderGutter();
       syncFromEditor();
+      scheduleFindTicks();
     });
   }
 
@@ -3266,6 +3360,22 @@ function collapseTabs(keep) {
     replaceOneButton.addEventListener('click', replaceCurrent);
     replaceAllButton.addEventListener('click', replaceAllMatches);
 
+    // A bar on the scrollbar goes to that match.  mousedown rather than click,
+    // and with the default prevented: that is what stops the press from moving
+    // the focus out of the find box, and from being read as a drag of the
+    // scrollbar, so the user can carry on typing.
+    findScroller.addEventListener('mousedown', function (event) {
+      var tick = event.target;
+      while (tick && tick !== findScroller && !tick.classList.contains('find-tick')) {
+        tick = tick.parentNode;
+      }
+      if (!tick || tick === findScroller || !tick.dataset || tick.dataset.match === undefined) {
+        return;
+      }
+      event.preventDefault();
+      goToMatch(parseInt(tick.dataset.match, 10), false);
+    });
+
     findCaseButton.addEventListener('click', function () {
       find.caseSensitive = !find.caseSensitive;
       findCaseButton.classList.toggle('is-on', find.caseSensitive);
@@ -3281,6 +3391,18 @@ function collapseTabs(keep) {
       findRegexButton.classList.toggle('is-on', find.regex);
       refreshFindMatches(true);
     });
+
+    // The preview changes height without any window resize: a picture arrives
+    // from the cache, a diagram replaces its source.  Bars measured before that
+    // arrive are left pointing at lines the matches are not on, so the content
+    // is watched as well as the window.
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(function () {
+        if (find.open) {
+          scheduleFindTicks();
+        }
+      }).observe(markdown);
+    }
   }
 
   function initMenubar() {

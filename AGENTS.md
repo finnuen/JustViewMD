@@ -16,15 +16,19 @@ the ones that are easy to get wrong.
 
 ## Releases
 
-- A release is a tag `vX.Y.Z` with **one asset: `JustViewMD_vX.Y.Z.exe`**.  The
-  executable is not committed to the repository - `dist/` is ignored and the
-  release is the record of a build.
-- The tag, the version in the file properties, the executable's name and the
-  version the application shows all have to agree.  They do because they come
-  from one place: `project(JustViewMD VERSION X.Y.Z ...)` in `CMakeLists.txt`.
-  CMake writes that out to `version_generated.h`, which `src/app.rc` (the
-  resource version and `OriginalFilename`), `src/main.cpp` (the Options menu and
-  the update check) and the target's `OUTPUT_NAME` all use.
+- A release is a tag `vX.Y.Z` with **one asset: `JustViewMD.exe`**.  The build
+  keeps the version in its own file name - `dist\JustViewMD_vX.Y.Z.exe` - so one
+  build can be told from another, and the upload renames it to `JustViewMD.exe`.
+  A release is replaced by dropping the new file over the old one: the name never
+  changes, so Windows keeps its "Open with" entry and the user's default-app
+  choice.  The executable is not committed to the repository - `dist/` is ignored
+  and the release is the record of a build.
+- The tag, the version in the file properties and the version the title bar shows
+  all have to agree.  They do because they come from one place:
+  `project(JustViewMD VERSION X.Y.Z ...)` in `CMakeLists.txt`.  CMake writes that
+  out to `version_generated.h`, which `src/app.rc` (the resource version),
+  `src/main.cpp` (the title bar, the Options menu and the update check) and the
+  target's `OUTPUT_NAME` all use.
 - **The version bumps itself.**  `build.bat` runs `tools/version.ps1`, which adds
   one to the patch number in that line before configuring.  `--keep-version`
   rebuilds the number already there and `--version X.Y.Z` sets it outright.
@@ -65,7 +69,8 @@ the ones that are easy to get wrong.
   file and is what Explorer shows for the executable itself, `IDI_DOCICON` (102)
   is the sheet marked `.MD` and belongs to the documents.  Windows takes a
   document's icon from the registration it resolved the handler through, and an
-  "Open with" entry is keyed by the executable's name - which carries the
-  version - so `RefreshDocumentIcons()` in `src/main.cpp` rewrites the icon of
-  the ProgID and of every `Applications\JustViewMD*.exe` entry on each start.
-  Keep that call: without it a rename sends `.md` files back to the app badge.
+  "Open with" entry is keyed by the executable's file name - which a development
+  build carries the version in, and older releases did - so
+  `RefreshDocumentIcons()` in `src/main.cpp` rewrites the icon of the ProgID and
+  of every `Applications\JustViewMD*.exe` entry on each start.  Keep that call:
+  without it a rename sends `.md` files back to the app badge.
