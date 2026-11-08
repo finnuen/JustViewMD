@@ -16,7 +16,7 @@ the ones that are easy to get wrong.
 
 ## Releases
 
-- A release is a tag `vX.Y.Z` with **one asset: `JustViewMD.exe`**.  The build
+- A release is a tag `X.Y.Z` with **one asset: `JustViewMD.exe`**.  The build
   keeps the version in its own file name - `dist\JustViewMD_vX.Y.Z.exe` - so one
   build can be told from another, and the upload renames it to `JustViewMD.exe`.
   A release is replaced by dropping the new file over the old one: the name never
@@ -34,10 +34,12 @@ the ones that are easy to get wrong.
   rebuilds the number already there and `--version X.Y.Z` sets it outright.
   Bumping a release is a build, a tag and the upload of the file in `dist\`,
   never a hand edit of the number.  (A bare `cmake --build` builds whatever
-  number the file holds; releases go through `build.bat`.)
+  number the file holds; releases go through `build.bat`.)  The agent may start
+  a new minor with `--version X.Y.0` when a change warrants it; the leading
+  digit moves only when the user asks for it.
 - The update check reads `releases/latest` of `finnuen/JustViewMD`, so a release
   has to be published (not a draft) before the application can see it.  Release
-  tags are `vX.Y.Z`.
+  tags are `X.Y.Z`, and the title is `JustViewMD vX.Y.Z`.
 
 ## Building
 
