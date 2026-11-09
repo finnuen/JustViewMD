@@ -53,7 +53,7 @@ BEGIN
             VALUE "FileDescription",  "JustViewMD - Markdown live preview"
             VALUE "FileVersion",      JVMD_VERSION_DOTTED
             VALUE "InternalName",     "JustViewMD"
-            VALUE "LegalCopyright",   "MIT licensed"
+            VALUE "LegalCopyright",   "Copyright 2026 finnuen. Apache-2.0"
             VALUE "OriginalFilename", JVMD_VERSION_BINARY
             VALUE "ProductName",      "JustViewMD"
             VALUE "ProductVersion",   JVMD_VERSION_DOTTED

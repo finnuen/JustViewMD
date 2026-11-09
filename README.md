@@ -39,7 +39,7 @@ both made by the host, never by the page (see
 | **Windows manners** | Tabs, `Ctrl+S`, find and replace, line-number gutter, a formatting bar, light and dark themes, settings under `%LOCALAPPDATA%`, no admin rights |
 | **Privacy** | No telemetry, no accounts, no analytics, nothing phoning home |
 | **Network** | The pictures a document points at, and the update check (switchable off) - nothing else |
-| **Licence** | MIT |
+| **Licence** | Apache 2.0 |
 
 ## Download
 
@@ -594,6 +594,10 @@ powershell -ExecutionPolicy Bypass -File tools\make-icon.ps1 `
 
 `fetch-vendor.ps1` also refreshes `assets/vendor/licenses/`. Committing the
 result keeps a checkout buildable without any of those tools.
+
+## Licence
+
+Apache License 2.0 - see [LICENSE](LICENSE). Copyright 2026 finnuen.
 
 ## Third-party software
 
