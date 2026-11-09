@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.8
+
+* A formatting bar along the bottom of the editor. Bold, italic, strikethrough,
+  inline code, superscript and subscript; H1-H3; block quote, bulleted, numbered
+  and task lists; fenced code block, table, horizontal rule and footnote; link
+  and image; inline math, display math and a Mermaid diagram. A button acts on
+  the selection, or on the lines the caret is on when nothing is selected; a
+  second press takes its own markers away, and one `Ctrl+Z` takes the whole
+  change back. `Ctrl+B`, `Ctrl+I` and `Ctrl+K` do the same from the editor, and
+  every button carries a tooltip.
+* A picture a document points at next to itself renders now: `assets/demo.png`,
+  `../shared/x.png`, an absolute `C:\...` path, a `file:///` address and a path
+  with `%20` all resolve against the folder of the document being previewed.
+  The host reads the file and serves it to the page from an origin of its own,
+  so nothing is copied into the picture cache and no request leaves the machine.
+  A missing or unreadable file keeps the broken-image placeholder and says why.
+
+## 1.7
+
+* A scroll to top / scroll to bottom pair in the bottom right corner, the way a
+  long web page has one. Both buttons appear while the reader is scrolling and
+  fade out a second after the last move; the one for the end already reached is
+  dimmed. They move the pane that owns the reading position, so a jump keeps the
+  other pane, the remembered place and the find marks in step like any other
+  scroll.
+
+## 1.6
+
+* The reading position survives the things that used to lose it: *Reload from
+  Disk*, zoom in / out / reset (menu, keyboard and Ctrl+wheel), switching between
+  split, editor and preview, turning line wrapping on or off, dragging the
+  divider, and resizing the window. It is remembered as the source line at the
+  top of the pane rather than as a pixel offset, so the same place means the same
+  thing after the layout has changed.
+* The version is two numbers now - `1.6` - instead of three. The tag
+  (`1.6`), the release title (`JustViewMD v1.6`) and the title bar follow it, and
+  a build bumps the last number.
+
 ## 1.0.5
 
 * Find marks every match on the preview's scrollbar, the way a browser does: a

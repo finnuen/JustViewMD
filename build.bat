@@ -5,17 +5,17 @@ rem
 rem  Uses MSVC when a Visual Studio C++ toolchain is present and falls back to
 rem  MinGW-w64 otherwise.
 rem
-rem  The version bumps itself: tools\version.ps1 adds one to the patch number in
+rem  The version bumps itself: tools\version.ps1 adds one to the last number in
 rem  CMakeLists.txt, and CMake writes that number into the resource block, the
-rem  Options menu, the update check and the executable's name.  Every copy of
+rem  window title, the update check and the executable's name.  Every copy of
 rem  the number therefore comes from that one line, and what lands in dist\ is
 rem  JustViewMD_v<version>.exe.
 rem
 rem  Usage:
-rem    build.bat                   release build, patch version bumped
-rem    build.bat --debug           debug build, patch version bumped
+rem    build.bat                   release build, version bumped
+rem    build.bat --debug           debug build, version bumped
 rem    build.bat --keep-version    rebuild the current version unchanged
-rem    build.bat --version 2.0.0   set the version outright (nothing is bumped)
+rem    build.bat --version 2.0     set the version outright (nothing is bumped)
 rem    build.bat --clean           remove the build tree first
 rem ===========================================================================
 setlocal EnableExtensions
@@ -50,7 +50,7 @@ if /i "%~1"=="--keep-version" (
 )
 if /i "%~1"=="--version" (
     if "%~2"=="" (
-        echo --version needs a number, for example --version 2.0.0
+        echo --version needs a number, for example --version 2.0
         exit /b 2
     )
     set "VERSION_ARGS=-Version %~2"
@@ -68,8 +68,12 @@ rem ---------------------------------------------------------------------------
 set "VERSION="
 for /f "usebackq delims=" %%v in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\version.ps1" %VERSION_ARGS%`) do set "VERSION=%%v"
 if not defined VERSION goto version_failed
+rem Two numbers, or three for a project that carries a patch number.
+echo %VERSION%| findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
+if not errorlevel 1 goto version_ok
 echo %VERSION%| findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$" >nul
 if errorlevel 1 goto version_failed
+:version_ok
 set "EXE_NAME=JustViewMD_v%VERSION%.exe"
 echo Version %VERSION%  (%EXE_NAME%)
 

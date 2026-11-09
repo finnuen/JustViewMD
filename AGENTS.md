@@ -16,8 +16,8 @@ the ones that are easy to get wrong.
 
 ## Releases
 
-- A release is a tag `X.Y.Z` with **one asset: `JustViewMD.exe`**.  The build
-  keeps the version in its own file name - `dist\JustViewMD_vX.Y.Z.exe` - so one
+- A release is a tag `X.Y` with **one asset: `JustViewMD.exe`**.  The build
+  keeps the version in its own file name - `dist\JustViewMD_vX.Y.exe` - so one
   build can be told from another, and the upload renames it to `JustViewMD.exe`.
   A release is replaced by dropping the new file over the old one: the name never
   changes, so Windows keeps its "Open with" entry and the user's default-app
@@ -25,21 +25,23 @@ the ones that are easy to get wrong.
   and the release is the record of a build.
 - The tag, the version in the file properties and the version the title bar shows
   all have to agree.  They do because they come from one place:
-  `project(JustViewMD VERSION X.Y.Z ...)` in `CMakeLists.txt`.  CMake writes that
+  `project(JustViewMD VERSION X.Y ...)` in `CMakeLists.txt`.  CMake writes that
   out to `version_generated.h`, which `src/app.rc` (the resource version),
   `src/main.cpp` (the title bar, the Options menu and the update check) and the
   target's `OUTPUT_NAME` all use.
 - **The version bumps itself.**  `build.bat` runs `tools/version.ps1`, which adds
-  one to the patch number in that line before configuring.  `--keep-version`
-  rebuilds the number already there and `--version X.Y.Z` sets it outright.
+  one to the last number in that line before configuring.  `--keep-version`
+  rebuilds the number already there and `--version X.Y` sets it outright.
   Bumping a release is a build, a tag and the upload of the file in `dist\`,
   never a hand edit of the number.  (A bare `cmake --build` builds whatever
-  number the file holds; releases go through `build.bat`.)  The agent may start
-  a new minor with `--version X.Y.0` when a change warrants it; the leading
-  digit moves only when the user asks for it.
+  number the file holds; releases go through `build.bat`.)  The leading digit
+  moves only when the user asks for it.
+- The version is two numbers.  `tools/version.ps1` also accepts three, so a
+  project that already carries a patch number keeps working, but a build here
+  bumps the minor one.
 - The update check reads `releases/latest` of `finnuen/JustViewMD`, so a release
   has to be published (not a draft) before the application can see it.  Release
-  tags are `X.Y.Z`, and the title is `JustViewMD vX.Y.Z`.
+  tags are `X.Y`, and the title is `JustViewMD vX.Y`.
 
 ## Building
 

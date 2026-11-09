@@ -7,7 +7,7 @@
      the host and served from https://cache.local/ (see the host's image
      cache), so the page itself never loads anything from the web.
      'unsafe-inline' is needed because KaTeX and Mermaid emit inline styles. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://app.local file:; style-src 'self' https://app.local file: 'unsafe-inline'; font-src 'self' https://app.local file:; img-src 'self' https://app.local https://cache.local file: data: blob:; connect-src 'self' https://app.local; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://app.local file:; style-src 'self' https://app.local file: 'unsafe-inline'; font-src 'self' https://app.local file:; img-src 'self' https://app.local https://cache.local https://local.local file: data: blob:; connect-src 'self' https://app.local; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
 <title>JustViewMD</title>
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="vendor/prism/prism.css" id="prismDark">
@@ -70,6 +70,78 @@
         <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" autocapitalize="off"
                   autocorrect="off" wrap="soft" aria-label="Markdown source"></textarea>
       </div>
+      <div class="formatbar" id="formatBar" role="toolbar" aria-label="Insert formatting">
+        <div class="format-group">
+          <button type="button" class="format-button is-bold" data-format="bold"
+                  title="Bold (Ctrl+B)" aria-label="Bold">B</button>
+          <button type="button" class="format-button is-italic" data-format="italic"
+                  title="Italic (Ctrl+I)" aria-label="Italic">I</button>
+          <button type="button" class="format-button is-strike" data-format="strike"
+                  title="Strikethrough" aria-label="Strikethrough">S</button>
+          <button type="button" class="format-button is-mono" data-format="code"
+                  title="Inline code" aria-label="Inline code">&lt;/&gt;</button>
+          <button type="button" class="format-button" data-format="superscript"
+                  title="Superscript" aria-label="Superscript">x<sup>2</sup></button>
+          <button type="button" class="format-button" data-format="subscript"
+                  title="Subscript" aria-label="Subscript">x<sub>2</sub></button>
+        </div>
+        <span class="format-sep" aria-hidden="true"></span>
+        <div class="format-group">
+          <button type="button" class="format-button" data-format="heading1"
+                  title="Heading 1" aria-label="Heading 1">H1</button>
+          <button type="button" class="format-button" data-format="heading2"
+                  title="Heading 2" aria-label="Heading 2">H2</button>
+          <button type="button" class="format-button" data-format="heading3"
+                  title="Heading 3" aria-label="Heading 3">H3</button>
+        </div>
+        <span class="format-sep" aria-hidden="true"></span>
+        <div class="format-group">
+          <button type="button" class="format-button is-quote" data-format="quote"
+                  title="Block quote" aria-label="Block quote">&rdquo;</button>
+          <button type="button" class="format-button is-list" data-format="bullet"
+                  title="Bulleted list" aria-label="Bulleted list">&#8226;</button>
+          <button type="button" class="format-button is-list" data-format="number"
+                  title="Numbered list" aria-label="Numbered list">1.</button>
+          <button type="button" class="format-button" data-format="task"
+                  title="Task list" aria-label="Task list">&#9745;</button>
+          <button type="button" class="format-button is-mono" data-format="codeblock"
+                  title="Code block" aria-label="Code block">{ }</button>
+          <button type="button" class="format-button" data-format="table"
+                  title="Table" aria-label="Table">&#9638;</button>
+          <button type="button" class="format-button" data-format="rule"
+                  title="Horizontal rule" aria-label="Horizontal rule">&#8213;</button>
+          <button type="button" class="format-button" data-format="footnote"
+                  title="Footnote" aria-label="Footnote">&#8224;</button>
+        </div>
+        <span class="format-sep" aria-hidden="true"></span>
+        <div class="format-group">
+          <button type="button" class="format-button" data-format="link"
+                  title="Link (Ctrl+K)" aria-label="Link">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M6.6 9.4a3 3 0 004.2 0l1.6-1.6a3 3 0 00-4.2-4.2L7 5.4" fill="none"
+                    stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+              <path d="M9.4 6.6a3 3 0 00-4.2 0L3.6 8.2a3 3 0 004.2 4.2L9 11.2" fill="none"
+                    stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+            </svg>
+          </button>
+          <button type="button" class="format-button" data-format="image"
+                  title="Image (relative paths resolve against this document)" aria-label="Image">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none"
+                    stroke="currentColor" stroke-width="1.3"></rect>
+              <circle cx="5.6" cy="6.6" r="1.1" fill="currentColor"></circle>
+              <path d="M3.2 11.8l3-3 2 2 2-2 2.6 3" fill="none"
+                    stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path>
+            </svg>
+          </button>
+          <button type="button" class="format-button" data-format="math"
+                  title="Inline math ($…$)" aria-label="Inline math">&#8730;x</button>
+          <button type="button" class="format-button" data-format="mathblock"
+                  title="Display math ($$…$$)" aria-label="Display math">&#8721;</button>
+          <button type="button" class="format-button" data-format="mermaid"
+                  title="Mermaid diagram" aria-label="Mermaid diagram">&#9671;</button>
+        </div>
+      </div>
       <footer class="statusbar">
         <span class="status-item status-file" id="statusFile" title="Active document">Untitled.md</span>
         <span class="status-spacer"></span>
@@ -104,6 +176,21 @@
   </div>
 
   <div class="toast" id="toast" hidden></div>
+
+  <div class="jump-buttons" id="jumpButtons">
+    <button type="button" class="jump-button" id="jumpTop" title="Scroll to top"
+            aria-label="Scroll to top">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M4 10l4-4 4 4"></path>
+      </svg>
+    </button>
+    <button type="button" class="jump-button" id="jumpBottom" title="Scroll to bottom"
+            aria-label="Scroll to bottom">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M4 6l4 4 4-4"></path>
+      </svg>
+    </button>
+  </div>
 
   <div class="menu" id="contextMenu" role="menu" hidden></div>
 

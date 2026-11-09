@@ -96,6 +96,16 @@ constexpr size_t  kMaxImageBytes      = 32u * 1024u * 1024u;  // per picture
 constexpr size_t  kMaxImageDownloads  = 4;                    // at the same time
 constexpr UINT    kImageDownloadedMessage = WM_APP + 1;
 
+// A picture that sits next to the document.  The page cannot read the disk, so
+// it asks the host for the file through an origin of its own - deliberately not
+// cache.local, which is mapped to a folder and answered before this handler ever
+// sees the request - and the host answers by reading that file.  Nothing is
+// copied into the cache and nothing is written: the picture is shown from where
+// the document already keeps it.
+constexpr wchar_t kLocalImageOrigin[] = L"https://local.local";
+constexpr wchar_t kLocalImagePath[]   = L"/local";
+constexpr size_t  kMaxLocalImageBytes = 64u * 1024u * 1024u;
+
 // The release feed is where a newer version comes from.  The check behind it is
 // the only request this program makes besides the pictures a document asks for;
 // like those it is made by the host, never by the page.
@@ -1885,6 +1895,7 @@ struct App {
     EventRegistrationToken navigationToken{};
     EventRegistrationToken newWindowToken{};
     EventRegistrationToken permissionToken{};
+    EventRegistrationToken localImageToken{};
 };
 
 App g_app;
@@ -2218,7 +2229,8 @@ void RunScriptInWeb(std::wstring_view script) {
     if (!plain && !secure) {
         return false;
     }
-    return url.rfind(kAssetOrigin, 0) != 0 && url.rfind(kImageCacheOrigin, 0) != 0;
+    return url.rfind(kAssetOrigin, 0) != 0 && url.rfind(kImageCacheOrigin, 0) != 0 &&
+           url.rfind(kLocalImageOrigin, 0) != 0;
 }
 
 [[nodiscard]] std::wstring Lowercased(std::wstring_view text) {
@@ -2379,6 +2391,141 @@ void RunScriptInWeb(std::wstring_view script) {
         }
     }
     return std::wstring();
+}
+
+// --- Local pictures ---------------------------------------------------------
+
+// A Windows path a document may name: a drive path or a UNC share.  A relative
+// name is resolved by the page against the document's own folder.
+[[nodiscard]] bool IsAbsoluteWindowsPath(const std::wstring& path) {
+    if (path.size() >= 3 && std::iswalpha(path[0]) && path[1] == L':' &&
+        (path[2] == L'\\' || path[2] == L'/')) {
+        return true;
+    }
+    return path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\';
+}
+
+// "C%3A%5CUsers%5Ca%20picture.png" -> "C:\Users\a picture.png".  The page
+// percent-encodes the UTF-8 form of the path, the way a URL carries it.
+[[nodiscard]] bool PercentDecodePath(std::wstring_view encoded, std::wstring& decoded) {
+    const std::string source = WideToUtf8(encoded);
+    std::string bytes;
+    bytes.reserve(source.size());
+    const auto digit = [](char value) -> int {
+        if (value >= '0' && value <= '9') {
+            return value - '0';
+        }
+        if (value >= 'a' && value <= 'f') {
+            return value - 'a' + 10;
+        }
+        if (value >= 'A' && value <= 'F') {
+            return value - 'A' + 10;
+        }
+        return -1;
+    };
+    for (size_t index = 0; index < source.size(); ++index) {
+        const char character = source[index];
+        if (character != '%') {
+            bytes.push_back(character);
+            continue;
+        }
+        if (index + 2 >= source.size()) {
+            return false;
+        }
+        const int high = digit(source[index + 1]);
+        const int low = digit(source[index + 2]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        bytes.push_back(static_cast<char>((high << 4) | low));
+        index += 2;
+    }
+    decoded = Utf8ToWide(bytes);
+    return !decoded.empty();
+}
+
+// The type the embedded browser is told.  Anything ImageExtensionFromBytes does
+// not recognise never reaches this function.
+[[nodiscard]] const wchar_t* ImageContentType(const wchar_t* extension) {
+    const std::wstring_view value(extension);
+    if (value == L"png") {
+        return L"image/png";
+    }
+    if (value == L"jpg") {
+        return L"image/jpeg";
+    }
+    if (value == L"gif") {
+        return L"image/gif";
+    }
+    if (value == L"webp") {
+        return L"image/webp";
+    }
+    if (value == L"svg") {
+        return L"image/svg+xml";
+    }
+    if (value == L"bmp") {
+        return L"image/bmp";
+    }
+    if (value == L"ico") {
+        return L"image/x-icon";
+    }
+    if (value == L"avif") {
+        return L"image/avif";
+    }
+    if (value == L"heic") {
+        return L"image/heic";
+    }
+    if (value == L"tiff") {
+        return L"image/tiff";
+    }
+    return L"application/octet-stream";
+}
+
+// Size and write time, which is all a repeat request needs to answer "not
+// changed" without reading the picture again.
+[[nodiscard]] bool StatLocalImageFile(const std::wstring& path, ULONGLONG& lastWrite,
+                                      ULONGLONG& size) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        return false;
+    }
+    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 || data.nFileSizeHigh != 0 ||
+        static_cast<ULONGLONG>(data.nFileSizeLow) > kMaxLocalImageBytes) {
+        return false;
+    }
+    lastWrite = (static_cast<ULONGLONG>(data.ftLastWriteTime.dwHighDateTime) << 32) |
+                data.ftLastWriteTime.dwLowDateTime;
+    size = data.nFileSizeLow;
+    return size > 0;
+}
+
+[[nodiscard]] bool ReadLocalImageFile(const std::wstring& path, std::vector<unsigned char>& bytes) {
+    const HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                      nullptr, OPEN_EXISTING,
+                                      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(file, &size) || size.QuadPart <= 0 ||
+        static_cast<ULONGLONG>(size.QuadPart) > kMaxLocalImageBytes) {
+        ::CloseHandle(file);
+        return false;
+    }
+    bytes.assign(static_cast<size_t>(size.QuadPart), 0);
+    size_t total = 0;
+    while (total < bytes.size()) {
+        const DWORD chunk = static_cast<DWORD>(std::min<size_t>(bytes.size() - total, 1u << 20));
+        DWORD read = 0;
+        if (!::ReadFile(file, bytes.data() + total, chunk, &read, nullptr) || read == 0) {
+            ::CloseHandle(file);
+            return false;
+        }
+        total += read;
+    }
+    ::CloseHandle(file);
+    return true;
 }
 
 // Small owner for the WinHTTP handles, so every early return above closes them.
@@ -2901,7 +3048,7 @@ void RequestUpdateCheck(bool asked) {
     std::thread(UpdateCheckThread, asked).detach();
 }
 
-// Where "Get JustViewMD x.y.z" leads: the release page, opened in the reader's
+// Where "Get JustViewMD x.y" leads: the release page, opened in the reader's
 // own browser.  Nothing is downloaded or run by this program.
 void OpenReleasePage() {
     const std::wstring url = g_app.updateUrl.empty() ? std::wstring(kReleasesPageUrl)
@@ -3749,6 +3896,131 @@ public:
     }
 };
 
+// Answers the page's request for a picture that sits on the disk.  The address
+// carries the absolute path of the file the document points at; only image
+// bytes are ever answered, and a repeat request is told "not changed" from the
+// file's size and timestamp instead of being read again.
+class LocalImageRequestedHandler final
+    : public ComHandler<LocalImageRequestedHandler, ICoreWebView2WebResourceRequestedEventHandler> {
+public:
+    static const IID& InterfaceId() noexcept { return IID_ICoreWebView2WebResourceRequestedEventHandler; }
+
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*,
+                                     ICoreWebView2WebResourceRequestedEventArgs* args) noexcept override {
+        if (args == nullptr || !g_app.environment) {
+            return S_OK;
+        }
+        ComPtr<ICoreWebView2WebResourceRequest> request;
+        if (FAILED(args->get_Request(request.Put())) || !request) {
+            return S_OK;
+        }
+        LPWSTR raw = nullptr;
+        if (FAILED(request->get_Uri(&raw)) || raw == nullptr) {
+            return S_OK;
+        }
+        const std::wstring uri(raw);
+        ::CoTaskMemFree(raw);
+
+        const std::wstring prefix = std::wstring(kLocalImageOrigin) + kLocalImagePath + L"?path=";
+        if (uri.rfind(prefix, 0) != 0) {
+            return S_OK;
+        }
+        std::wstring encoded = uri.substr(prefix.size());
+        const size_t extra = encoded.find(L'&');
+        if (extra != std::wstring::npos) {
+            encoded.resize(extra);
+        }
+
+        std::wstring path;
+        if (!PercentDecodePath(encoded, path)) {
+            AnswerNotFound(args);
+            return S_OK;
+        }
+        for (wchar_t& character : path) {
+            if (character == L'/') {
+                character = L'\\';
+            }
+        }
+        ULONGLONG lastWrite = 0;
+        ULONGLONG size = 0;
+        if (!IsAbsoluteWindowsPath(path) || !StatLocalImageFile(path, lastWrite, size)) {
+            DebugLog(L"Local picture not found: " + path);
+            AnswerNotFound(args);
+            return S_OK;
+        }
+
+        const std::wstring etag = L"\"" + std::to_wstring(lastWrite) + L"-" +
+                                  std::to_wstring(size) + L"\"";
+        if (IfNoneMatch(request.Get(), etag)) {
+            Answer(args, {}, L"Cache-Control: no-cache\r\nETag: " + etag + L"\r\n", 304,
+                   L"Not Modified");
+            return S_OK;
+        }
+
+        std::vector<unsigned char> bytes;
+        if (!ReadLocalImageFile(path, bytes)) {
+            AnswerNotFound(args);
+            return S_OK;
+        }
+        const wchar_t* extension = ImageExtensionFromBytes(bytes);
+        if (extension == nullptr) {
+            DebugLog(L"Local file is not a picture: " + path);
+            AnswerNotFound(args);
+            return S_OK;
+        }
+        const std::wstring headers = std::wstring(L"Content-Type: ") +
+                                     ImageContentType(extension) +
+                                     L"\r\nCache-Control: no-cache\r\nETag: " + etag + L"\r\n";
+        Answer(args, bytes, headers, 200, L"OK");
+        return S_OK;
+    }
+
+private:
+    [[nodiscard]] static bool IfNoneMatch(ICoreWebView2WebResourceRequest* request,
+                                          const std::wstring& etag) {
+        ComPtr<ICoreWebView2HttpRequestHeaders> headers;
+        if (request == nullptr || FAILED(request->get_Headers(headers.Put())) || !headers) {
+            return false;
+        }
+        LPWSTR value = nullptr;
+        if (FAILED(headers->GetHeader(L"If-None-Match", &value)) || value == nullptr) {
+            return false;
+        }
+        const bool same = etag == value;
+        ::CoTaskMemFree(value);
+        return same;
+    }
+
+    static void AnswerNotFound(ICoreWebView2WebResourceRequestedEventArgs* args) noexcept {
+        const std::string body = "JustViewMD could not read this picture.";
+        const std::vector<unsigned char> bytes(body.begin(), body.end());
+        Answer(args, bytes, L"Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n",
+               404, L"Not Found");
+    }
+
+    static void Answer(ICoreWebView2WebResourceRequestedEventArgs* args,
+                       const std::vector<unsigned char>& bytes, const std::wstring& headers,
+                       int status, const wchar_t* reason) noexcept {
+        ComPtr<ICoreWebView2Environment2> environment;
+        if (!g_app.environment ||
+            FAILED(g_app.environment->QueryInterface(
+                IID_ICoreWebView2Environment2, reinterpret_cast<void**>(environment.Put())))) {
+            return;
+        }
+        IStream* stream = ::SHCreateMemStream(bytes.empty() ? nullptr : bytes.data(),
+                                              static_cast<UINT>(bytes.size()));
+        if (stream == nullptr) {
+            return;
+        }
+        ComPtr<ICoreWebView2WebResourceResponse> response;
+        if (SUCCEEDED(environment->CreateWebResourceResponse(stream, status, reason,
+                                                             headers.c_str(), response.Put()))) {
+            (void)args->put_Response(response.Get());
+        }
+        stream->Release();
+    }
+};
+
 // Never let the embedded browser navigate away from the application: links to
 // the web go to the default browser, and a dropped local file is turned into a
 // "load this document" request instead of a navigation.
@@ -3940,6 +4212,19 @@ void SetupWebViewAfterControllerCreated() {
     auto* permissionHandler = new PermissionRequestedHandler();
     (void)webview->add_PermissionRequested(permissionHandler, &g_app.permissionToken);
     permissionHandler->Release();
+
+    // Pictures that sit on the disk are answered one file at a time by the host.
+    // The folder mapping below cannot do it: a document may point anywhere on
+    // the disk, and the page must never be given a whole folder to read.
+    auto* localImageHandler = new LocalImageRequestedHandler();
+    if (SUCCEEDED(webview->add_WebResourceRequested(localImageHandler, &g_app.localImageToken))) {
+        webview->AddWebResourceRequestedFilter(
+            (std::wstring(kLocalImageOrigin) + kLocalImagePath + L"*").c_str(),
+            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE);
+    } else {
+        DebugLog(L"add_WebResourceRequested failed; local pictures will not load");
+    }
+    localImageHandler->Release();
 
     // File drops are handled by the host window (see DocumentDropTarget), so the
     // WebView2 must not swallow them.  Without this, dropping a .md file would

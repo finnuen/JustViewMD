@@ -576,6 +576,72 @@ body { display: flex; flex-direction: column; }
 }
 
 /* ==========================================================================
+   Formatting bar
+   ========================================================================== */
+
+/* Sits at the bottom of the editor pane, above its status bar, and wraps into
+   as many rows as the pane is narrow rather than hiding actions. */
+.formatbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.format-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.format-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.format-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.format-button:hover { background: var(--bg-hover); color: var(--text); }
+.format-button:active { background: var(--bg-active); }
+.format-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.format-button svg { display: block; width: 14px; height: 14px; }
+
+.format-button.is-bold { font-weight: 700; color: var(--text); }
+.format-button.is-italic { font-style: italic; font-family: Georgia, "Times New Roman", serif; font-size: 14px; }
+.format-button.is-strike { text-decoration: line-through; }
+.format-button.is-mono { font-family: var(--editor-font); }
+.format-button.is-quote { font-family: Georgia, "Times New Roman", serif; font-size: 17px; line-height: 14px; }
+.format-button.is-list { font-family: var(--editor-font); }
+.format-button sup, .format-button sub { font-size: 9px; line-height: 0; }
+
+/* ==========================================================================
    Status bars
    ========================================================================== */
 
@@ -890,6 +956,70 @@ body { display: flex; flex-direction: column; }
 .toast[hidden] { display: none; }
 .toast.is-visible { opacity: 1; }
 .toast.is-error { border-color: var(--danger-border); color: var(--danger); }
+
+/* Scroll to top and bottom ------------------------------------------------ */
+
+/* The pair sits above the status bar in the bottom right corner, the way the
+   same pair sits on a long web page.  It is painted only while the reader is
+   scrolling: the first scroll event fades it in, and the timer in app.js fades
+   it out a second after the last one. */
+.jump-buttons {
+  position: fixed;
+  right: 18px;
+  bottom: calc(var(--statusbar-height) + 14px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 150ms ease, transform 150ms ease, visibility 0s linear 150ms;
+}
+
+.jump-buttons.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.jump-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--toast-bg);
+  color: var(--text-muted);
+  box-shadow: 0 6px 18px var(--shadow-soft);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+
+.jump-button:hover { color: var(--text); background: var(--bg-hover); border-color: var(--accent); }
+.jump-button:active { background: var(--bg-active); }
+.jump-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.jump-button svg { width: 16px; height: 16px; }
+.jump-button svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The end the reader is already at: still there, but plainly unavailable. */
+.jump-button[aria-disabled="true"] { opacity: 0.35; cursor: default; }
+.jump-button[aria-disabled="true"]:hover {
+  color: var(--text-muted);
+  background: var(--toast-bg);
+  border-color: var(--border-strong);
+}
 
 .menu {
   position: fixed;

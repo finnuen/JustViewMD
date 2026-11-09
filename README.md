@@ -36,7 +36,7 @@ both made by the host, never by the page (see
 | **Markdown** | GitHub Flavored Markdown: tables, task lists, footnotes, strikethrough, autolinks |
 | **Rendering** | KaTeX math, Mermaid diagrams, Prism syntax highlighting (30+ languages) |
 | **Documents** | `.md`, `.markdown`, `.mdx`, `.txt`, `.text`; drag and drop; Explorer context menu |
-| **Windows manners** | Tabs, `Ctrl+S`, find and replace, line-number gutter, light and dark themes, settings under `%LOCALAPPDATA%`, no admin rights |
+| **Windows manners** | Tabs, `Ctrl+S`, find and replace, line-number gutter, a formatting bar, light and dark themes, settings under `%LOCALAPPDATA%`, no admin rights |
 | **Privacy** | No telemetry, no accounts, no analytics, nothing phoning home |
 | **Network** | The pictures a document points at, and the update check (switchable off) - nothing else |
 | **Licence** | MIT |
@@ -132,6 +132,13 @@ application, including its front end. Put it wherever you like and run it.
 * Split view with a resizable divider (drag it, or double-click to reset).
 * Line-number gutter that follows wrapped lines.
 * Status bar with cursor position, word, character and byte counts.
+* A formatting bar at the bottom of the editor. One press inserts the Markdown
+  around the selection - bold, italic, strikethrough, inline code, superscript,
+  subscript, H1-H3, block quote, bulleted, numbered and task lists, fenced code,
+  table, horizontal rule, footnote, link, image, inline and display math, a
+  Mermaid diagram - and the result appears in the preview as it is written.
+  Pressing the same button again removes what it added, one `Ctrl+Z` undoes the
+  whole change, and every button names itself on hover.
 * Realtime preview, debounced while typing.
 * Find and replace with match highlighting, `Enter` / `F3` for next,
   `Shift+F3` for previous, `Ctrl+Enter` to replace, case, whole-word and
@@ -143,6 +150,9 @@ application, including its front end. Put it wherever you like and run it.
   prints light colours even from the dark theme, and keeps headings with the
   text that follows them.
 * Zoom with `Ctrl` `+` / `-` / `0` or `Ctrl`+wheel.
+* Scroll to top and bottom from the pair of buttons in the bottom right corner.
+  They appear while you scroll, fade a second after the last move, and dim the
+  end you are already at.
 * Light and dark themes, dark by default.
 * Custom context menu (undo, redo, cut, copy, paste, select all, find, wrap,
   file and tab actions) instead of the browser's.
@@ -154,6 +164,11 @@ application, including its front end. Put it wherever you like and run it.
 * Math with KaTeX: `$inline$`, `$$display$$`, `\(inline\)`, `\[display\]`.
 * Diagrams with Mermaid, fenced as ````` ```mermaid `````.
 * Syntax highlighting with Prism for 30+ languages.
+* Pictures that sit next to the document: a relative address
+  (`assets/demo.png`, `../shared/x.png`), an absolute Windows path or a
+  `file:///` address is read from the disk by the host and shown where it lies.
+  Nothing is copied into the picture cache, and a picture that is missing keeps
+  the broken-image placeholder and says why on hover.
 * Pictures that a document points at on the web: the host downloads each one
   once into `%LOCALAPPDATA%\JustViewMD\cache` and shows it from there, so a
   document with online images also renders offline once it has been opened.
@@ -172,7 +187,7 @@ application, including its front end. Put it wherever you like and run it.
   the page cannot navigate away from the document being edited. Text selections
   can be dropped too and are inserted at the cursor.
 * The title bar shows the active file name, with `*` while there are unsaved
-  changes, and the version in use (`README.md - JustViewMD v1.0.5`); the active
+  changes, and the version in use (`README.md - JustViewMD v1.6`); the active
   tab carries a dot.
 * Unsaved changes are confirmed before anything that would discard them,
   including closing the window, closing a tab and reloading from disk.
@@ -190,8 +205,8 @@ application, including its front end. Put it wherever you like and run it.
 **Updates**
 
 * The version in use is printed beside *Options → Check for update...*. When a
-  newer release exists, the row reads `1.0.1 → 1.0.2` and a *Get JustViewMD
-  1.0.2...* row appears below it, which opens the release page in your browser.
+  newer release exists, the row reads `1.5 → 1.6` and a *Get JustViewMD 1.6...*
+  row appears below it, which opens the release page in your browser.
 * The check runs in the background each time the window opens and never
   interrupts: it only ever shows up in the Options menu. Asking from the menu
   reports itself with a toast, because then you asked.
@@ -238,21 +253,21 @@ application, including its front end. Put it wherever you like and run it.
 build.bat
 ```
 
-The script finds a compiler (MSVC first, then MinGW-w64), bumps the patch
-version, configures, builds and copies the result to `dist\`:
+The script finds a compiler (MSVC first, then MinGW-w64), bumps the version,
+configures, builds and copies the result to `dist\`:
 
 ```
 dist\JustViewMD_v<version>.exe
 ```
 
-Every build carries a version in its name, and bumps the patch number unless you
+Every build carries a version in its name, and bumps the last number unless you
 say otherwise:
 
 | Command | Version the build carries |
 | --- | --- |
-| `build.bat` | patch +1, e.g. `1.0.1` becomes `1.0.2` |
+| `build.bat` | minor +1, e.g. `1.5` becomes `1.6` |
 | `build.bat --keep-version` | the number already in `CMakeLists.txt`, unchanged |
-| `build.bat --version 2.0.0` | exactly that number; nothing is bumped |
+| `build.bat --version 2.0` | exactly that number; nothing is bumped |
 
 The number lives in one line of `CMakeLists.txt`, and the script edits that line
 rather than a copy of it (see [Releasing](#releasing)).
@@ -300,19 +315,19 @@ build\bin\JustViewMD_v<version>.exe --assets assets
 
 ## Releasing
 
-A release is a tag `vX.Y.Z` with `JustViewMD.exe` as its only asset. The version
-lives in exactly one place: the `project(JustViewMD VERSION X.Y.Z ...)` line in
+A release is a tag `X.Y` with `JustViewMD.exe` as its only asset. The version
+lives in exactly one place: the `project(JustViewMD VERSION X.Y ...)` line in
 `CMakeLists.txt`.
 
 `tools/version.ps1` edits that one line - `build.bat` calls it before it
-configures, and it adds one to the patch number unless `--keep-version` or
+configures, and it adds one to the last number unless `--keep-version` or
 `--version` says otherwise. CMake writes the number out to a generated header
 that the resource script (the version in the file's properties), the host (the
 window title, the Options menu, the update check and `--help`) and the build's
 file name all use, so the tag, the file properties, the title bar and what the
 application reports cannot drift apart. Bumping a release is `build.bat`,
 a tag, and publishing the file it left in `dist\` under the name
-`JustViewMD.exe`: the build keeps its version in `JustViewMD_vX.Y.Z.exe`, and the
+`JustViewMD.exe`: the build keeps its version in `JustViewMD_vX.Y.exe`, and the
 release drops the version so the download can replace an older copy in place and
 keep its "Open with" entry and default-app choice.
 
@@ -353,6 +368,7 @@ be started.
 | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Split / editor only / preview only |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+A` | Cut / copy / paste / select all |
+| `Ctrl+B` / `Ctrl+I` / `Ctrl+K` | Bold / italic / link the selection |
 | `Ctrl` `+` / `Ctrl` `-` / `Ctrl+0` / `Ctrl`+wheel | Zoom in / out / reset |
 | `Tab` / `Shift+Tab` | Indent / outdent the selected lines |
 | `Alt+F` / `Alt+E` / `Alt+O` | Open the File / Edit / Options menu |
@@ -404,7 +420,8 @@ The page is kept off the network; the host does the one job that needs it:
    Prism and Mermaid, all vendored at pinned versions.
 2. `assets/index.html` carries a Content-Security-Policy of
    `default-src 'none'` that allows only the page's own origin
-   (`https://app.local`), the local picture cache (`https://cache.local`) and
+   (`https://app.local`), the local picture cache (`https://cache.local`), the
+   origin that serves pictures from the disk (`https://local.local`) and
    `file:`. A picture on the web is therefore refused by the page itself, so
    nothing is ever loaded behind the reader's back.
 3. The host maps the unpacked front end onto the virtual host `https://app.local/`
@@ -418,7 +435,9 @@ The page is kept off the network; the host does the one job that needs it:
    with no network at all once the cache holds it. That folder is never pruned
    by the application: *Options* reports its size and opens it in Explorer, and
    a picture removed from it is simply fetched again the next time a document
-   needs it.
+   needs it. A picture the document points at on its own disk is not fetched at
+   all: the host reads that file and answers the page's `https://local.local`
+   request with it, so it never enters the cache and never touches the network.
 5. The update check is the second and last request: one `GET` of
    `api.github.com/repos/finnuen/JustViewMD/releases/latest`, the public
    document GitHub serves to anyone. It carries no account, no identifier and
@@ -452,8 +471,10 @@ src/file-icon.ico           document icon for .md files, 16-256 px
 src/app-icon.png            source image for the application icon
 src/file-icon.png           source image for the .md document icon
 assets/index.html           page frame and content security policy
-assets/style.css            themes, panes, tabs, menus, find bar, gutter
-assets/app.js               tabs, editor, render pipeline, scroll sync, IPC client
+assets/style.css            themes, panes, tabs, menus, find bar, gutter,
+                            formatting bar
+assets/app.js               tabs, editor, formatting bar, render pipeline,
+                            scroll sync, IPC client
 assets/welcome.md           the document shown when no file is given
                             (unless "Start with blank" is on)
 assets/vendor/              marked, KaTeX, Prism, Mermaid (+ licenses)
@@ -490,7 +511,10 @@ remembers the `https://cache.local/<name>` address it gets back, and swaps it in
 so the same picture is neither downloaded nor even requested twice. A cached
 copy that has disappeared under it - the folder is the reader's to empty - is
 noticed from the failed load and asked for again, so the preview recovers
-without a restart.
+without a restart. A picture given as a path is resolved against the folder of
+the active document (`..`, `file:///`, drive letters, UNC paths and `%20` all
+handled) and requested from `https://local.local`, which the host answers from
+the disk rather than from the cache.
 
 **Update check.** The check behind *Options → Check for update...* - and the one
 that runs when the window opens - is a single `GET` of
@@ -499,7 +523,7 @@ thread, through the same WinHTTP path the pictures use. The release's `tag_name`
 is compared with the version compiled into the executable; the page is told the
 outcome (`update`) and shows it in the Options menu, and as a toast only when
 the user asked for that check. Nothing is downloaded and nothing replaces the
-running executable: *Get JustViewMD x.y.z...* opens the release page in the
+running executable: *Get JustViewMD x.y...* opens the release page in the
 reader's own browser.
 
 **Messages.** Page to host:
@@ -624,8 +648,8 @@ file, the right pane is what that file renders to. That is what keeps the file
 in front of you the one that gets saved, byte for byte, line endings included.
 
 **How do I know a new version exists?** *Options → Check for update...* shows
-the version in use; when a newer release exists the row reads `1.0.1 → 1.0.2`
-and a *Get JustViewMD 1.0.2...* row opens the release page in your browser. The
+the version in use; when a newer release exists the row reads `1.5 → 1.6`
+and a *Get JustViewMD 1.6...* row opens the release page in your browser. The
 same check runs quietly in the background each time the window opens.
 
 ## Notes and limitations

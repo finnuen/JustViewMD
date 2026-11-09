@@ -3,11 +3,15 @@
     Reads, bumps or sets the one version JustViewMD carries.
 
 .DESCRIPTION
-    project(JustViewMD VERSION X.Y.Z) in CMakeLists.txt is the only place the
-    version lives.  CMake writes it out for the resource block, for the Options
-    menu, for the update check and for the executable's name, so editing that
-    one line keeps the tag, the file properties, the binary name and what the
+    project(JustViewMD VERSION X.Y) in CMakeLists.txt is the only place the
+    version lives.  CMake writes it out for the resource block, for the title
+    bar, for the update check and for the executable's name, so editing that
+    one line keeps the tag, the file properties, the build's name and what the
     application displays in agreement.
+
+    The version has two numbers.  Three are accepted as well, so a project that
+    already carries a patch number keeps working, but JustViewMD does not use
+    one: a build that carries a change bumps the minor number.
 
     This script is that edit, and the build script (build.bat) calls it before
     it configures.  It prints the resulting version on stdout and nothing else,
@@ -17,20 +21,20 @@
     Keep the current version: rebuild what is there without a new number.
 
 .PARAMETER Version
-    Set the version outright, for a deliberate minor or major bump, e.g.
-    -Version 2.0.0.  Nothing is incremented on top of it.
+    Set the version outright, for a deliberate major or minor bump, e.g.
+    -Version 2.0.  Nothing is incremented on top of it.
 
 .EXAMPLE
     .\tools\version.ps1
-    1.0.2
+    1.7
 
 .EXAMPLE
     .\tools\version.ps1 -KeepVersion
-    1.0.2
+    1.6
 
 .EXAMPLE
-    .\tools\version.ps1 -Version 2.0.0
-    2.0.0
+    .\tools\version.ps1 -Version 2.0
+    2.0
 #>
 [CmdletBinding()]
 param(
@@ -48,14 +52,21 @@ if (-not (Test-Path -LiteralPath $file)) {
 }
 
 $text = [System.IO.File]::ReadAllText($file)
-$pattern = [regex]'(?m)^project\(JustViewMD VERSION (\d+)\.(\d+)\.(\d+)(.*)$'
+$pattern = [regex]'(?m)^project\(JustViewMD VERSION (\d+)\.(\d+)(?:\.(\d+))?(.*)$'
 $match = $pattern.Match($text)
 if (-not $match.Success) {
-    Write-Error 'CMakeLists.txt has no "project(JustViewMD VERSION X.Y.Z" line'
+    Write-Error 'CMakeLists.txt has no "project(JustViewMD VERSION X.Y" line'
     exit 1
 }
 
-$current = '{0}.{1}.{2}' -f $match.Groups[1].Value, $match.Groups[2].Value, $match.Groups[3].Value
+$major = $match.Groups[1].Value
+$minor = $match.Groups[2].Value
+$hasPatch = $match.Groups[3].Success
+$current = if ($hasPatch) {
+    '{0}.{1}.{2}' -f $major, $minor, $match.Groups[3].Value
+} else {
+    '{0}.{1}' -f $major, $minor
+}
 $next = $current
 
 if ($Version) {
@@ -63,16 +74,19 @@ if ($Version) {
         Write-Error 'Use either -Version or -KeepVersion, not both'
         exit 1
     }
-    if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-        Write-Error "-Version must be three numbers like 1.2.3, not '$Version'"
+    if ($Version -notmatch '^\d+\.\d+(\.\d+)?$') {
+        Write-Error "-Version must be two numbers like 1.2, not '$Version'"
         exit 1
     }
     $next = $Version
 } elseif (-not $KeepVersion) {
-    # A build that carries a change bumps the patch number: the minor and major
-    # ones are a deliberate decision, made with -Version.
-    $patch = [int]$match.Groups[3].Value + 1
-    $next = '{0}.{1}.{2}' -f $match.Groups[1].Value, $match.Groups[2].Value, $patch
+    # A build that carries a change bumps the last number: the major one is a
+    # deliberate decision, made with -Version.
+    if ($hasPatch) {
+        $next = '{0}.{1}.{2}' -f $major, $minor, ([int]$match.Groups[3].Value + 1)
+    } else {
+        $next = '{0}.{1}' -f $major, ([int]$minor + 1)
+    }
 }
 
 if ($next -ne $current) {

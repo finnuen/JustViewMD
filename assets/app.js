@@ -35,6 +35,7 @@
 
   var editor = document.getElementById('editor');
   var editorViewport = document.getElementById('editorViewport');
+  var formatBar = document.getElementById('formatBar');
   var gutterInner = document.getElementById('gutterInner');
   var markdown = document.getElementById('markdown');
   var previewViewport = document.getElementById('previewViewport');
@@ -76,6 +77,9 @@
   var findHighlightInner = document.getElementById('findHighlightInner');
   var findScroller = document.getElementById('findScroller');
   var previewPane = document.getElementById('previewPane');
+  var jumpButtons = document.getElementById('jumpButtons');
+  var jumpTopButton = document.getElementById('jumpTop');
+  var jumpBottomButton = document.getElementById('jumpBottom');
   var prismDarkLink = document.getElementById('prismDark');
   var prismLightLink = document.getElementById('prismLight');
 
@@ -162,6 +166,21 @@
   var mermaidCache = new Map();
   var metrics = { counts: [], prefix: [0], lineHeight: 21, paddingTop: 16, width: 0, text: null };
   var footnoteState = { defs: new Map(), order: [] };
+
+  // Where the reader is, as a source line instead of a pixel offset, and the
+  // place an action in flight is trying to keep.  See "Remembering the reading
+  // position" below.
+  var currentPlace = null;
+  var pendingPlace = null;
+  var pendingPlaceTimer = null;
+  var layoutSettlingUntil = 0;
+  var PLACE_HOLD_MS = 250;
+
+  // The scroll to top / bottom pair: how long it stays after the last scroll
+  // event, and how close to an end still counts as being at it.
+  var JUMP_HIDE_MS = 1000;
+  var JUMP_EDGE_PX = 2;
+  var jumpHideTimer = null;
 
   /* ---------------------------------------------------------------------- */
   /* Small helpers                                                          */
@@ -727,6 +746,140 @@
   // Options menu is opened, so the number there is never stale by much.
   var imageCache = null;  // { files, bytes } as last reported by the host
 
+  /* --- a picture that sits next to the document --------------------------- */
+
+  // The page cannot read the disk.  A picture a document points at next to
+  // itself is handed to the host as an absolute path through the one address
+  // that already means "the host prepared this picture"
+  // (https://cache.local/local?path=...), and the host answers with the file
+  // itself: nothing is copied into the cache and no request leaves the machine.
+  var LOCAL_IMAGE_ORIGIN = 'https://local.local/local?path=';
+
+  function documentFolder() {
+    var tab = activeTab();
+    var path = (tab && tab.path) ? tab.path : '';
+    var slash = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+    return slash > 0 ? path.slice(0, slash) : '';
+  }
+
+  function decodeAddress(text) {
+    try {
+      return decodeURIComponent(text);
+    } catch (error) {
+      return text;  // a stray % in the name, not an escape
+    }
+  }
+
+  // An address that names a file on the disk rather than a page on the web.
+  // data: and blob: pictures are already complete, and http(s) ones belong to
+  // the download cache above.
+  function isLocalImageSource(source) {
+    if (!source || source.charAt(0) === '#') {
+      return false;
+    }
+    if (/^(?:data|blob|https?):/i.test(source)) {
+      return false;
+    }
+    if (/^file:/i.test(source)) {
+      return true;
+    }
+    if (/^[A-Za-z]:[\\/]/.test(source) || /^\\\\/.test(source)) {
+      return true;
+    }
+    // Any other scheme names something this program cannot read.
+    return !/^[a-z][a-z0-9+.-]*:/i.test(source);
+  }
+
+  // The address in the Markdown, resolved against the document's own folder.
+  // '' means there is nothing to read: the document is unsaved, or the name is
+  // relative to a root that means nothing on Windows.
+  function resolveLocalImagePath(source) {
+    var address = String(source || '').replace(/[?#].*$/, '');
+    if (!address) {
+      return '';
+    }
+    if (/^file:/i.test(address)) {
+      var drive = /^file:\/\/\/([A-Za-z]:[\\/].*)$/i.exec(address);
+      if (drive) {
+        return decodeAddress(drive[1]).replace(/\//g, '\\');
+      }
+      var share = /^file:\/\/([^\/].*)$/i.exec(address);
+      if (share) {
+        return ('\\\\' + decodeAddress(share[1])).replace(/\//g, '\\');
+      }
+      return '';
+    }
+    var decoded = decodeAddress(address);
+    if (/^[A-Za-z]:[\\/]/.test(decoded)) {
+      return decoded.replace(/\//g, '\\');
+    }
+    if (/^\\\\/.test(decoded)) {
+      return decoded;
+    }
+    if (/^[A-Za-z]:/.test(decoded) || decoded.charAt(0) === '/') {
+      return '';
+    }
+    var folder = documentFolder();
+    if (!folder) {
+      return '';
+    }
+    // Walk the segments so ".." can climb but never leave the root, and put the
+    // leading double backslash of a UNC share back afterwards.
+    var shareRoot = /^\\\\/.test(folder);
+    var parts = (folder + '\\' + decoded).split(/[\\/]+/);
+    var resolved = [];
+    for (var index = 0; index < parts.length; ++index) {
+      var part = parts[index];
+      if (!part || part === '.') {
+        continue;
+      }
+      if (part === '..') {
+        if (resolved.length > (shareRoot ? 2 : 1)) {
+          resolved.pop();
+        }
+        continue;
+      }
+      resolved.push(part);
+    }
+    var path = resolved.join('\\');
+    return shareRoot ? '\\\\' + path : path;
+  }
+
+  function applyLocalImages(container) {
+    var images = container.querySelectorAll('img');
+    for (var index = 0; index < images.length; ++index) {
+      var image = images[index];
+      if (image.getAttribute('data-remote-src')) {
+        continue;  // a picture from the web, already handled
+      }
+      var source = image.getAttribute('src') || '';
+      if (!isLocalImageSource(source)) {
+        continue;
+      }
+      var path = resolveLocalImagePath(source);
+      var address = path ? LOCAL_IMAGE_ORIGIN + encodeURIComponent(path) : '';
+      if (image.getAttribute('data-local-path') === path &&
+          image.getAttribute('src') === address) {
+        continue;  // already pointed at this file
+      }
+      image.setAttribute('data-local-src', source);
+      image.setAttribute('data-local-path', path);
+      if (!path) {
+        image.removeAttribute('src');
+        image.title = documentFolder()
+          ? 'JustViewMD could not resolve this picture: ' + source
+          : 'Save the document before a local picture can be shown: ' + source;
+        continue;
+      }
+      // The file behind the picture can move or change while the page is open;
+      // when it stops loading, the tooltip says which file was tried.
+      image.addEventListener('error', function () {
+        this.title = 'JustViewMD could not show this picture: ' + path;
+      });
+      image.setAttribute('src', address);
+    }
+  }
+
   function formatBytes(bytes) {
     var value = Number(bytes) || 0;
     var mib = 1024 * 1024;
@@ -806,6 +959,7 @@
     highlightCodeBlocks(markdown);
     renderMermaidBlocks(markdown, generation);
     applyRemoteImages(markdown);
+    applyLocalImages(markdown);
 
     var elapsed = performance.now() - started;
     if (state.heavy) {
@@ -1262,6 +1416,118 @@
     return line;
   }
 
+  /* --- remembering the reading position ------------------------------------ */
+
+  // An offset in pixels means nothing after the layout has changed: a zoom, a
+  // re-wrap, a switch between the views or a reload all move the same offset to
+  // a different line.  The source line at the top edge of the pane means the
+  // same thing in all of them, so that is what every action carries across.
+  //
+  // The pane that owns the position is the one the user is reading: the preview
+  // in the preview-only view, the editor otherwise.  In the split view the two
+  // are kept in step, so either one reads the same place.
+  function placePane() {
+    return state.settings.viewMode === 'preview' ? previewViewport : editor;
+  }
+
+  function placeFromPane(pane) {
+    if (pane === previewViewport) {
+      ensureAnchors();
+      var line = lineForPreviewTop(previewViewport.scrollTop);
+      if (line !== null) {
+        return { line: line };
+      }
+      var previewLimit = maxScroll(previewViewport);
+      return { ratio: previewLimit > 0 ? previewViewport.scrollTop / previewLimit : 0 };
+    }
+    computeMetrics();
+    return { line: logicalLineFromVisual(editorVisualTop()) };
+  }
+
+  function rememberPlace(pane) {
+    currentPlace = placeFromPane(pane || placePane());
+  }
+
+  // Puts the active pane back at a place.  A document with no anchors falls
+  // back to the fraction of the scroll range, which is the best that can be
+  // said about a page of unpaired blocks.
+  function applyPlace(place) {
+    if (!place) {
+      return;
+    }
+    if (placePane() === previewViewport) {
+      ensureAnchors();
+      var limit = maxScroll(previewViewport);
+      var top = typeof place.line === 'number' ? previewTopForLine(place.line) : null;
+      if (top === null && typeof place.ratio === 'number') {
+        top = place.ratio * limit;
+      }
+      if (top === null) {
+        return;
+      }
+      programmatic.preview = Math.round(clamp(top, 0, limit));
+      previewViewport.scrollTop = programmatic.preview;
+      programmatic.preview = previewViewport.scrollTop;
+    } else {
+      computeMetrics();
+      var target = null;
+      if (typeof place.line === 'number') {
+        target = visualFromLogicalLine(place.line) *
+                 (metrics.lineHeight > 0 ? metrics.lineHeight : 1);
+      } else if (typeof place.ratio === 'number') {
+        target = place.ratio * maxScroll(editor);
+      }
+      if (target === null) {
+        return;
+      }
+      programmatic.editor = Math.round(clamp(target, 0, maxScroll(editor)));
+      editor.scrollTop = programmatic.editor;
+      programmatic.editor = editor.scrollTop;
+      if (state.settings.viewMode === 'split') {
+        // The preview shows the same place; in the editor-only view it is
+        // hidden and has nothing to follow.
+        syncFromEditor();
+      }
+    }
+    rememberPlace();
+  }
+
+  // Marks a place to restore once the layout an action is about to change has
+  // settled.  Until then the panes' scroll events are the browser clamping a
+  // shrinking or hidden area, not the reader moving, so they are dropped
+  // instead of being remembered (see the scroll handlers).
+  function holdPlace(place) {
+    pendingPlace = place || placeFromPane(placePane());
+    if (pendingPlaceTimer) {
+      clearTimeout(pendingPlaceTimer);
+    }
+    // A zoom already at its limit changes nothing and fires no resize; this is
+    // what releases the hold in that case.
+    pendingPlaceTimer = setTimeout(settlePlace, PLACE_HOLD_MS);
+  }
+
+  // Applies the held place, or the last remembered one, to the current layout.
+  function settlePlace() {
+    var place = pendingPlace || currentPlace;
+    pendingPlace = null;
+    if (pendingPlaceTimer) {
+      clearTimeout(pendingPlaceTimer);
+      pendingPlaceTimer = null;
+    }
+    if (place) {
+      applyPlace(place);
+    } else {
+      syncFromEditor();
+    }
+  }
+
+  // Every zoom request starts here, so the reading position is read before the
+  // host changes the zoom factor and the layout moves under it.
+  function requestZoom(type) {
+    holdPlace();
+    postToHost({ type: type });
+  }
+
   /* --- moving the other pane --------------------------------------------- */
 
   function syncFromEditor() {
@@ -1322,6 +1588,133 @@
     }
   }
 
+  /* --- scroll to top and bottom ------------------------------------------- */
+
+  // The pair in the bottom right corner appears while the reader scrolls and
+  // fades out a second after the last move.  It drives the pane that owns the
+  // reading position - the preview in the preview-only view, the editor
+  // otherwise - so a jump is just another deliberate move, like a find jump,
+  // and leaves the other pane and the remembered place in step.
+  function jumpAtEdge(edge) {
+    var pane = placePane();
+    var limit = maxScroll(pane);
+    if (limit <= JUMP_EDGE_PX) {
+      // The document fits the pane: neither end can be reached, so both
+      // buttons read as unavailable.
+      return true;
+    }
+    return edge === 'top'
+      ? pane.scrollTop <= JUMP_EDGE_PX
+      : pane.scrollTop >= limit - JUMP_EDGE_PX;
+  }
+
+  function paintJumpButtons() {
+    jumpTopButton.setAttribute('aria-disabled', jumpAtEdge('top') ? 'true' : 'false');
+    jumpBottomButton.setAttribute('aria-disabled', jumpAtEdge('bottom') ? 'true' : 'false');
+  }
+
+  function scheduleJumpHide() {
+    if (jumpHideTimer) {
+      clearTimeout(jumpHideTimer);
+    }
+    jumpHideTimer = setTimeout(function () {
+      jumpHideTimer = null;
+      // Never pull the pair out from under the pointer or the keyboard: the
+      // reader is on their way to click one.
+      if (jumpButtons.matches(':hover') || jumpButtons.contains(document.activeElement)) {
+        scheduleJumpHide();
+        return;
+      }
+      jumpButtons.classList.remove('is-visible');
+    }, JUMP_HIDE_MS);
+  }
+
+  // Called by the scroll handlers on a move the reader made.
+  function revealJumpButtons() {
+    paintJumpButtons();
+    jumpButtons.classList.add('is-visible');
+    scheduleJumpHide();
+  }
+
+  // The dim state follows the pane while it moves, so the button for the end
+  // already reached is inactive by the time the reader looks at it.
+  function followJumpScroll() {
+    if (jumpButtons.classList.contains('is-visible')) {
+      paintJumpButtons();
+    }
+  }
+
+  function jumpTo(edge) {
+    if (jumpAtEdge(edge)) {
+      return;
+    }
+    var pane = placePane();
+    var target = edge === 'top' ? 0 : maxScroll(pane);
+    programmatic[pane === previewViewport ? 'preview' : 'editor'] = target;
+    // A smooth scroll reports itself through the scroll handlers, which keeps
+    // the place and the other pane in step exactly as a wheel does.  The check
+    // afterwards covers a browser that lands at once instead: its single
+    // event matches the target and looks programmatic, so do the work here.
+    try {
+      pane.scrollTo({ top: target, behavior: 'smooth' });
+    } catch (error) {
+      pane.scrollTop = target;
+    }
+    if (Math.abs(pane.scrollTop - target) < 1) {
+      if (pane === previewViewport) {
+        syncFromPreview();
+      } else {
+        syncFromEditor();
+      }
+      rememberPlace(pane);
+    }
+    revealJumpButtons();
+  }
+
+  function initJumpButtons() {
+    jumpTopButton.addEventListener('click', function () {
+      jumpTo('top');
+    });
+    jumpBottomButton.addEventListener('click', function () {
+      jumpTo('bottom');
+    });
+
+    // The pair sits on top of the text, so the wheel over it has to keep
+    // scrolling the document instead of hitting a dead corner.
+    jumpButtons.addEventListener('wheel', function (event) {
+      if (!event.deltaY) {
+        return;
+      }
+      var pane = placePane();
+      var scale = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? pane.clientHeight : 1);
+      pane.scrollTop += event.deltaY * scale;
+      event.preventDefault();
+    }, { passive: false });
+
+    jumpButtons.addEventListener('pointerenter', function () {
+      if (jumpHideTimer) {
+        clearTimeout(jumpHideTimer);
+        jumpHideTimer = null;
+      }
+    });
+    jumpButtons.addEventListener('pointerleave', function () {
+      if (jumpButtons.classList.contains('is-visible')) {
+        scheduleJumpHide();
+      }
+    });
+    jumpButtons.addEventListener('focusin', function () {
+      if (jumpHideTimer) {
+        clearTimeout(jumpHideTimer);
+        jumpHideTimer = null;
+      }
+    });
+    jumpButtons.addEventListener('focusout', function () {
+      if (jumpButtons.classList.contains('is-visible')) {
+        scheduleJumpHide();
+      }
+    });
+  }
+
   /* ---------------------------------------------------------------------- */
   /* Tabs                                                                   */
   /* ---------------------------------------------------------------------- */
@@ -1362,6 +1755,7 @@
     var tab = activeTab();
     if (!tab) {
       editor.value = '';
+      currentPlace = null;
       updateTabStrip();
       return;
     }
@@ -1384,6 +1778,9 @@
     }
     programmatic.editor = editor.scrollTop;
     programmatic.preview = previewViewport.scrollTop;
+    // The tab remembers its offset in pixels from when it was left; the place
+    // that offset stands for is what a zoom, a view switch or a reload keeps.
+    rememberPlace();
     updateTabStrip();
     updateFileStatus();
     if (find.open) {
@@ -1526,8 +1923,16 @@ function collapseTabs(keep) {
       state.tabs.push(blankTab());
     }
     var tab = state.tabs[index];
+    // "Reload from Disk" hands the same file back while its tab is the one on
+    // screen: the reader keeps their place, at the same source line, across the
+    // new text.  Opening a file, creating a tab or filling another tab starts
+    // at the top.
+    var path = (typeof data.path === 'string') ? data.path : '';
+    var reloading = index === state.active && path !== '' && tab.path !== '' &&
+                    path.toLowerCase() === tab.path.toLowerCase();
+    var keepPlace = reloading ? placeFromPane(placePane()) : null;
     tab.text = (typeof data.content === 'string') ? data.content : '';
-    tab.path = data.path || '';
+    tab.path = path;
     tab.name = data.name || 'Untitled.md';
     tab.dirty = Boolean(data.dirty);
     tab.scrollTop = 0;
@@ -1545,6 +1950,16 @@ function collapseTabs(keep) {
       editor.focus();
     } catch (error) {
       /* ignore */
+    }
+    if (keepPlace) {
+      // Focusing put the caret, which the reload reset to the start, in view;
+      // the reading position goes back on top of that.
+      if (pendingPlaceTimer) {
+        clearTimeout(pendingPlaceTimer);
+        pendingPlaceTimer = null;
+      }
+      pendingPlace = null;
+      applyPlace(keepPlace);
     }
   }
 
@@ -1564,6 +1979,9 @@ function collapseTabs(keep) {
     updateTabStrip();
     updateFileStatus();
     showToast('Saved ' + tab.name, false);
+    // Save As moves the document, and a picture named relative to it now
+    // resolves somewhere else.
+    applyLocalImages(markdown);
   }
 
   function postAllContents(reason) {
@@ -1806,6 +2224,449 @@ function collapseTabs(keep) {
     }
     markEdited();
     updateCounts();
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Formatting bar                                                         */
+  /* ---------------------------------------------------------------------- */
+
+  // Every action below ends in exactly one replaceEditorRange call, so one
+  // Ctrl+Z takes the whole change back, however many lines it touched.  The
+  // helpers work out the new text and the selection to leave behind first.
+  function replaceEditorRange(start, end, text, selectionStart, selectionEnd) {
+    editor.focus();
+    editor.setSelectionRange(start, end);
+    var inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, text);
+    } catch (error) {
+      inserted = false;
+    }
+    if (!inserted) {
+      var value = editor.value;
+      editor.value = value.slice(0, start) + text + value.slice(end);
+    }
+    var from = (typeof selectionStart === 'number') ? selectionStart : start + text.length;
+    var to = (typeof selectionEnd === 'number') ? selectionEnd : from;
+    editor.setSelectionRange(Math.max(0, from), Math.max(from, to));
+    markEdited();
+    updateCounts();
+  }
+
+  // Bold, italic and friends: wrapping a selection that already carries the
+  // markers takes them away again, and the text stays selected either way, so
+  // the next button press applies to the same words.
+  function formatWrap(open, close, placeholder) {
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var value = editor.value;
+    var selected = value.slice(start, end);
+    var before = value.slice(Math.max(0, start - open.length), start);
+    var after = value.slice(end, end + close.length);
+
+    // One asterisk is italic and two are bold, so a run of them has to be read
+    // as a whole: Ctrl+I inside "**words**" adds a third asterisk, while inside
+    // "***words***" it takes one away again.
+    if (open === '*' && close === '*') {
+      var beforeRun = 0;
+      var afterRun = 0;
+      var scan;
+      for (scan = start - 1; scan >= 0 && value.charAt(scan) === '*'; --scan) {
+        ++beforeRun;
+      }
+      for (scan = end; scan < value.length && value.charAt(scan) === '*'; ++scan) {
+        ++afterRun;
+      }
+      if (selected.length > 0) {
+        var leading = 0;
+        var trailing = 0;
+        for (scan = 0; scan < selected.length && selected.charAt(scan) === '*'; ++scan) {
+          ++leading;
+        }
+        for (scan = selected.length - 1; scan >= 0 && selected.charAt(scan) === '*'; --scan) {
+          ++trailing;
+        }
+        if (leading > 0 && leading % 2 === 1 && trailing > 0 && trailing % 2 === 1) {
+          var unwrapped = selected.slice(1, selected.length - 1);
+          replaceEditorRange(start, end, unwrapped, start, start + unwrapped.length);
+          return;
+        }
+      }
+      if (selected.length > 0 && beforeRun > 0 && afterRun > 0) {
+        if (beforeRun % 2 === 1 && afterRun % 2 === 1) {
+          replaceEditorRange(start - 1, end + 1, selected, start - 1, start - 1 + selected.length);
+        } else {
+          replaceEditorRange(start, end, '*' + selected + '*', start + 1, start + 1 + selected.length);
+        }
+        return;
+      }
+    }
+
+    if (selected.length >= open.length + close.length &&
+        selected.slice(0, open.length) === open &&
+        selected.slice(selected.length - close.length) === close) {
+      var inner = selected.slice(open.length, selected.length - close.length);
+      replaceEditorRange(start, end, inner, start, start + inner.length);
+      return;
+    }
+    if (selected.length > 0 && before === open && after === close) {
+      replaceEditorRange(start - open.length, end + close.length, selected,
+                         start - open.length, start - open.length + selected.length);
+      return;
+    }
+    var body = selected || placeholder || '';
+    replaceEditorRange(start, end, open + body + close,
+                       start + open.length, start + open.length + body.length);
+  }
+
+  // The whole lines a block action works on, plus where the caret sits in them.
+  // A selection that stops at a line start leaves that next line alone.
+  function currentLineBlock() {
+    var value = editor.value;
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var blockStart = value.lastIndexOf('\n', start - 1) + 1;
+    var blockEnd;
+    if (end > start && value.charAt(end - 1) === '\n') {
+      blockEnd = end - 1;
+    } else {
+      blockEnd = value.indexOf('\n', end);
+      if (blockEnd < 0) {
+        blockEnd = value.length;
+      }
+    }
+    var lines = value.slice(blockStart, blockEnd).split('\n');
+    var caretLine = value.slice(blockStart, start).split('\n').length - 1;
+    var caretLineStart = blockStart;
+    for (var index = 0; index < caretLine; ++index) {
+      caretLineStart += lines[index].length + 1;
+    }
+    return {
+      start: blockStart,
+      end: blockEnd,
+      lines: lines,
+      caretLine: caretLine,
+      caretColumn: Math.max(0, start - caretLineStart)
+    };
+  }
+
+  // Puts transformed lines back, moving the selection with them: a prefix added
+  // or removed at the start of a line shifts every column after it, and the
+  // user keeps the same words selected they had before the button was pressed.
+  function replaceLineBlock(block, lines) {
+    var oldLines = block.lines;
+    var oldStarts = [];
+    var newStarts = [];
+    var cursor = block.start;
+    var index;
+    for (index = 0; index < oldLines.length; ++index) {
+      oldStarts.push(cursor);
+      cursor += oldLines[index].length + 1;
+    }
+    cursor = block.start;
+    for (index = 0; index < lines.length; ++index) {
+      newStarts.push(cursor);
+      cursor += lines[index].length + 1;
+    }
+    var mapOffset = function (offset) {
+      var line = 0;
+      while (line + 1 < oldLines.length && offset >= oldStarts[line + 1]) {
+        ++line;
+      }
+      var delta = lines[line].length - oldLines[line].length;
+      var column = Math.min(Math.max(0, offset - oldStarts[line] + delta), lines[line].length);
+      return newStarts[line] + column;
+    };
+    var text = lines.join('\n');
+    var from = mapOffset(editor.selectionStart);
+    var to = Math.max(from, mapOffset(editor.selectionEnd));
+    replaceEditorRange(block.start, block.end, text, from, to);
+  }
+
+  function formatHeading(level) {
+    var block = currentLineBlock();
+    var marker = '';
+    for (var count = 0; count < level; ++count) {
+      marker += '#';
+    }
+    var pattern = /^(\s{0,3})(#{1,6})([ \t]+)/;
+    var hasLevel = function (line) {
+      var match = pattern.exec(line);
+      return match !== null && match[2].length === level;
+    };
+    var filled = block.lines.filter(function (line) {
+      return line.trim() !== '';
+    });
+    var all = filled.length > 0 && filled.every(hasLevel);
+    var lines = block.lines.map(function (line) {
+      var match = pattern.exec(line);
+      if (all) {
+        return match ? line.replace(pattern, '$1') : line;
+      }
+      if (line.trim() === '' && block.lines.length > 1) {
+        return line;
+      }
+      return match ? line.replace(pattern, '$1' + marker + '$3') : marker + ' ' + line;
+    });
+    replaceLineBlock(block, lines);
+  }
+
+  function formatQuote() {
+    var block = currentLineBlock();
+    var quoted = /^(\s*)>[ \t]?/;
+    var all = block.lines.every(function (line) {
+      return line.trim() === '' || quoted.test(line);
+    });
+    var lines = block.lines.map(function (line) {
+      if (all) {
+        return line.replace(quoted, '$1');
+      }
+      if (line.trim() === '') {
+        return '> ';
+      }
+      return quoted.test(line) ? line : '> ' + line;
+    });
+    replaceLineBlock(block, lines);
+  }
+
+  // "- item", "1. item" and "- [ ] item" share one shape; read it apart once.
+  function listMarker(line) {
+    var match = /^(\s*)([-*+]|\d+[.)])([ \t]+)(\[[ xX]\][ \t]+)?/.exec(line);
+    if (!match) {
+      return null;
+    }
+    return {
+      indent: match[1],
+      mark: match[2],
+      gap: match[3],
+      task: match[4] || '',
+      length: match[0].length
+    };
+  }
+
+  function formatList(kind) {
+    var block = currentLineBlock();
+    var filled = block.lines.filter(function (line) {
+      return line.trim() !== '';
+    });
+    var all = filled.length > 0 && filled.every(function (line) {
+      var marker = listMarker(line);
+      if (!marker) {
+        return false;
+      }
+      if (kind === 'task') {
+        return marker.task !== '';
+      }
+      if (kind === 'bullet') {
+        return marker.task === '' && /^[-*+]$/.test(marker.mark);
+      }
+      return marker.task === '' && /^\d/.test(marker.mark);
+    });
+    var counter = 0;
+    var lines = block.lines.map(function (line) {
+      var marker = listMarker(line);
+      if (all) {
+        return marker ? marker.indent + line.slice(marker.length) : line;
+      }
+      if (line.trim() === '') {
+        return line;
+      }
+      var rest = marker ? line.slice(marker.length) : line;
+      var indent = marker ? marker.indent : '';
+      if (kind === 'bullet') {
+        return indent + '- ' + rest;
+      }
+      if (kind === 'task') {
+        var box = (marker && marker.task) ? marker.task : '[ ] ';
+        return indent + '- ' + box + rest;
+      }
+      counter += 1;
+      return indent + counter + '. ' + rest;
+    });
+    replaceLineBlock(block, lines);
+  }
+
+  function formatCodeBlock() {
+    var value = editor.value;
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var blockStart = value.lastIndexOf('\n', start - 1) + 1;
+    var blockEnd;
+    if (end > start && value.charAt(end - 1) === '\n') {
+      blockEnd = end - 1;
+    } else {
+      blockEnd = value.indexOf('\n', end);
+      if (blockEnd < 0) {
+        blockEnd = value.length;
+      }
+    }
+    var block = value.slice(blockStart, blockEnd);
+    var lines = block.split('\n');
+    if (lines.length >= 2 && /^```/.test(lines[0]) &&
+        /^\s*```\s*$/.test(lines[lines.length - 1])) {
+      var inner = lines.slice(1, -1).join('\n');
+      replaceEditorRange(blockStart, blockEnd, inner, blockStart, blockStart + inner.length);
+      return;
+    }
+    var caret = blockStart + (start - blockStart) + 4;
+    var selectionEnd = blockStart + (end - blockStart) + 4;
+    replaceEditorRange(blockStart, blockEnd, '```\n' + block + '\n```',
+                       caret, Math.max(caret, selectionEnd));
+  }
+
+  // A block that has to stand on its own line, separated from the paragraph
+  // around it.  `selection` is the part of it to leave selected.
+  function insertBlock(text, selection) {
+    var value = editor.value;
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var before = value.slice(0, start);
+    var after = value.slice(end);
+    var lead = '';
+    if (start > 0 && !/\n\s*\n$/.test(before)) {
+      lead = /\n$/.test(before) ? '\n' : '\n\n';
+    }
+    var trail = '';
+    if (after === '') {
+      trail = '\n';
+    } else if (!/^\n/.test(after)) {
+      trail = '\n\n';
+    }
+    var pointer = (selection && text.indexOf(selection) >= 0)
+      ? start + lead.length + text.indexOf(selection)
+      : start + lead.length + text.length + trail.length;
+    var until = (selection && text.indexOf(selection) >= 0) ? pointer + selection.length : pointer;
+    replaceEditorRange(start, end, lead + text + trail, pointer, until);
+  }
+
+  function formatTable() {
+    var text = '| Column 1 | Column 2 |\n| --- | --- |\n|  |  |';
+    insertBlock(text, 'Column 1');
+  }
+
+  function formatRule() {
+    insertBlock('---', null);
+  }
+
+  function formatMathBlock() {
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var selected = editor.value.slice(start, end);
+    if (/^\$\$[\s\S]*\$\$$/.test(selected)) {
+      var inner = selected.slice(2, selected.length - 2).replace(/^\n|\n$/g, '');
+      replaceEditorRange(start, end, inner, start, start + inner.length);
+      return;
+    }
+    var body = selected || 'x = 1';
+    var caret = start + 3;
+    replaceEditorRange(start, end, '$$\n' + body + '\n$$', caret, caret + body.length);
+  }
+
+  function formatMermaid() {
+    var text = '```mermaid\ngraph TD\n  A[Start] --> B[End]\n```';
+    insertBlock(text, 'graph TD');
+  }
+
+  function formatLink() {
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var selected = editor.value.slice(start, end);
+    var existing = /^\[([\s\S]*)\]\(([^)]*)\)$/.exec(selected);
+    if (existing) {
+      replaceEditorRange(start, end, existing[1], start, start + existing[1].length);
+      return;
+    }
+    var body = selected || 'link text';
+    var from = start + 1 + body.length + 2;
+    replaceEditorRange(start, end, '[' + body + '](url)', from, from + 3);
+  }
+
+  function formatImage() {
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var selected = editor.value.slice(start, end);
+    var existing = /^!\[([\s\S]*)\]\(([^)]*)\)$/.exec(selected);
+    if (existing) {
+      replaceEditorRange(start, end, existing[1], start, start + existing[1].length);
+      return;
+    }
+    var alt = selected || 'alt text';
+    var from = start + 2 + alt.length + 2;
+    replaceEditorRange(start, end, '![' + alt + '](path)', from, from + 4);
+  }
+
+  // A footnote reference and its definition, added in one edit so the whole
+  // pair comes back with a single undo.  Selected text becomes the footnote.
+  function formatFootnote() {
+    var value = editor.value;
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var selected = value.slice(start, end);
+    var used = {};
+    var pattern = /\[\^([^\]\s]+)\]/g;
+    var match;
+    while ((match = pattern.exec(value)) !== null) {
+      used[match[1]] = true;
+    }
+    var number = 1;
+    while (used[String(number)]) {
+      ++number;
+    }
+    var id = String(number);
+    var body = value.slice(0, start) + '[^' + id + ']' + value.slice(end);
+    var separator = (body === '' || /\n$/.test(body)) ? '\n' : '\n\n';
+    var text = body + separator + '[^' + id + ']: ' + selected;
+    replaceEditorRange(0, value.length, text, text.length);
+  }
+
+  function applyFormat(action) {
+    switch (action) {
+      case 'bold': formatWrap('**', '**'); break;
+      case 'italic': formatWrap('*', '*'); break;
+      case 'strike': formatWrap('~~', '~~'); break;
+      case 'code': formatWrap('`', '`'); break;
+      case 'superscript': formatWrap('<sup>', '</sup>'); break;
+      case 'subscript': formatWrap('<sub>', '</sub>'); break;
+      case 'heading1': formatHeading(1); break;
+      case 'heading2': formatHeading(2); break;
+      case 'heading3': formatHeading(3); break;
+      case 'quote': formatQuote(); break;
+      case 'bullet': formatList('bullet'); break;
+      case 'number': formatList('number'); break;
+      case 'task': formatList('task'); break;
+      case 'codeblock': formatCodeBlock(); break;
+      case 'table': formatTable(); break;
+      case 'rule': formatRule(); break;
+      case 'footnote': formatFootnote(); break;
+      case 'link': formatLink(); break;
+      case 'image': formatImage(); break;
+      case 'math': formatWrap('$', '$', 'x'); break;
+      case 'mathblock': formatMathBlock(); break;
+      case 'mermaid': formatMermaid(); break;
+    }
+  }
+
+  function initFormatBar() {
+    if (!formatBar) {
+      return;
+    }
+    // Taking focus would collapse the editor's selection before the click ever
+    // got here, so the button that was pressed does not steal it.
+    formatBar.addEventListener('mousedown', function (event) {
+      if (event.target.closest && event.target.closest('.format-button')) {
+        event.preventDefault();
+      }
+    });
+    formatBar.addEventListener('click', function (event) {
+      var button = event.target.closest ? event.target.closest('.format-button') : null;
+      if (!button || button.disabled) {
+        return;
+      }
+      var action = button.getAttribute('data-format');
+      if (action) {
+        applyFormat(action);
+      }
+    });
   }
 
   function saveActive() {
@@ -2221,6 +3082,9 @@ function collapseTabs(keep) {
     if (state.settings.viewMode !== 'editor') {
       scrollPreviewToFindHit(match);
     }
+    // The reader chose to move here, so this is the place a later zoom, view
+    // switch or reload returns to.
+    rememberPlace();
     updateFindCount();
   }
 
@@ -2452,7 +3316,11 @@ function collapseTabs(keep) {
   function applySettings(data) {
     var settings = state.settings;
     if (data.view === 'split' || data.view === 'editor' || data.view === 'preview') {
-      settings.viewMode = data.view;
+      if (data.view !== settings.viewMode) {
+        // Read the place from the pane that is on screen before they swap.
+        holdPlace();
+        settings.viewMode = data.view;
+      }
     }
     if (typeof data.dark === 'boolean') {
       settings.dark = data.dark;
@@ -2476,6 +3344,10 @@ function collapseTabs(keep) {
   }
 
   function setViewMode(mode, persist) {
+    if (mode !== state.settings.viewMode) {
+      // Read the place from the pane that is on screen before they swap.
+      holdPlace();
+    }
     state.settings.viewMode = mode;
     applyViewMode();
     if (persist) {
@@ -2734,11 +3606,11 @@ function collapseTabs(keep) {
       action: function () { setViewMode('preview', true); } });
     items.push({ separator: true });
     items.push({ label: 'Zoom In', shortcut: 'Ctrl++',
-      action: function () { postToHost({ type: 'zoomIn' }); } });
+      action: function () { requestZoom('zoomIn'); } });
     items.push({ label: 'Zoom Out', shortcut: 'Ctrl+-',
-      action: function () { postToHost({ type: 'zoomOut' }); } });
+      action: function () { requestZoom('zoomOut'); } });
     items.push({ label: 'Reset Zoom', shortcut: 'Ctrl+0',
-      action: function () { postToHost({ type: 'zoomReset' }); } });
+      action: function () { requestZoom('zoomReset'); } });
     items.push({ separator: true });
     items.push({ label: 'Line Wrapping', checked: state.wrapLines,
       action: function () { setWrapLines(!state.wrapLines, true); } });
@@ -3017,9 +3889,18 @@ function collapseTabs(keep) {
 
   function afterResize() {
     metrics.text = null;
+    // From here until the callback runs, a scroll event belongs to the browser
+    // reacting to the new layout, not to the reader: it must not overwrite the
+    // place that is about to be restored.  The deadline is only a safety net
+    // for a window that is not painting, where the callback never runs.
+    layoutSettlingUntil = performance.now() + 1000;
     requestAnimationFrame(function () {
+      layoutSettlingUntil = 0;
       renderGutter();
-      syncFromEditor();
+      // Whatever moved the layout - a zoom, the divider, a new window size, a
+      // wrap change - the reader keeps the line they were on.  With no place
+      // yet (before the first render) the panes simply follow the editor.
+      settlePlace();
       scheduleFindTicks();
     });
   }
@@ -3033,14 +3914,29 @@ function collapseTabs(keep) {
     });
 
     editor.addEventListener('scroll', function () {
-      if (Math.abs(editor.scrollTop - programmatic.editor) >= 1) {
+      if (state.settings.viewMode === 'preview' || pendingPlace ||
+          performance.now() < layoutSettlingUntil) {
+        // A hidden textarea has no position worth following, and while a
+        // layout is settling these scroll events are the browser clamping it.
+        programmatic.editor = editor.scrollTop;
+      } else if (Math.abs(editor.scrollTop - programmatic.editor) >= 1) {
         syncFromEditor();
+        rememberPlace(editor);
+        revealJumpButtons();
       }
       renderGutter();
       syncFindHighlight();
+      followJumpScroll();
     });
 
     editor.addEventListener('keydown', function (event) {
+      var shortcut = (event.key || '').toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
+          (shortcut === 'b' || shortcut === 'i' || shortcut === 'k')) {
+        event.preventDefault();
+        applyFormat(shortcut === 'b' ? 'bold' : (shortcut === 'i' ? 'italic' : 'link'));
+        return;
+      }
       if (event.key === 'Tab') {
         // Ctrl+Tab (tab switching) is handled by the document-level listener
         // and has already been taken care of by the time this runs.
@@ -3116,9 +4012,15 @@ function collapseTabs(keep) {
     });
 
     previewViewport.addEventListener('scroll', function () {
-      if (Math.abs(previewViewport.scrollTop - programmatic.preview) >= 1) {
+      if (state.settings.viewMode === 'editor' || pendingPlace ||
+          performance.now() < layoutSettlingUntil) {
+        programmatic.preview = previewViewport.scrollTop;
+      } else if (Math.abs(previewViewport.scrollTop - programmatic.preview) >= 1) {
         syncFromPreview();
+        rememberPlace(previewViewport);
+        revealJumpButtons();
       }
+      followJumpScroll();
     });
 
     editor.addEventListener('contextmenu', showContextMenu);
@@ -3204,13 +4106,13 @@ function collapseTabs(keep) {
         setViewMode(key === '1' ? 'split' : (key === '2' ? 'editor' : 'preview'), true);
       } else if (key === '=' || key === '+') {
         event.preventDefault();
-        postToHost({ type: 'zoomIn' });
+        requestZoom('zoomIn');
       } else if (key === '-') {
         event.preventDefault();
-        postToHost({ type: 'zoomOut' });
+        requestZoom('zoomOut');
       } else if (key === '0') {
         event.preventDefault();
-        postToHost({ type: 'zoomReset' });
+        requestZoom('zoomReset');
       }
     }, true);
 
@@ -3219,7 +4121,7 @@ function collapseTabs(keep) {
         return;
       }
       event.preventDefault();
-      postToHost({ type: event.deltaY < 0 ? 'zoomIn' : 'zoomOut' });
+      requestZoom(event.deltaY < 0 ? 'zoomIn' : 'zoomOut');
     }, { passive: false });
 
     window.addEventListener('error', function (event) {
@@ -3433,6 +4335,8 @@ function collapseTabs(keep) {
     initMermaid(state.settings.dark);
     initDivider();
     initEditor();
+    initFormatBar();
+    initJumpButtons();
     initTabs();
     initFind();
     initMenubar();
