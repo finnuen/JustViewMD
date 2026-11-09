@@ -192,6 +192,21 @@
     </button>
   </div>
 
+  <div class="dialog-backdrop" id="aboutDialog" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+      <div class="dialog-head">
+        <strong id="aboutTitle">About JustViewMD</strong>
+        <button type="button" class="dialog-close" id="aboutClose" title="Close (Esc)"
+                aria-label="Close">&#215;</button>
+      </div>
+      <div class="dialog-body">
+        <p class="dialog-summary" id="aboutSummary">JustViewMD</p>
+        <p class="dialog-summary">Apache License 2.0 &middot; Copyright 2026 finnuen</p>
+        <pre class="dialog-licence" id="aboutLicence">Loading the licence text&hellip;</pre>
+      </div>
+    </div>
+  </div>
+
   <div class="menu" id="contextMenu" role="menu" hidden></div>
 
   <script src="vendor/marked.js"></script>

@@ -1056,6 +1056,96 @@ body { display: flex; flex-direction: column; }
 .menu .menu-shortcut { color: var(--text-faint); font-size: 12px; }
 .menu .menu-separator { height: 1px; margin: 5px 6px; background: var(--border); }
 
+/* ==========================================================================
+   About dialog
+
+   The licence has to travel with the binary (Apache 2.0, section 4(a)), so the
+   text is embedded as an asset and shown here instead of sitting in a file
+   beside the executable.  The body scrolls; the frame keeps a fixed size so
+   that switching documents behind it cannot move it.
+   ========================================================================== */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: var(--backdrop);
+  backdrop-filter: blur(2px);
+}
+.dialog-backdrop[hidden] { display: none; }
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(78vh, 720px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: 0 24px 64px var(--shadow-strong);
+  color: var(--text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 12px 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-head strong { font-size: 14px; font-weight: 600; }
+
+.dialog-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: default;
+}
+.dialog-close:hover { background: var(--bg-hover); color: var(--text); }
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px 18px;
+  /* A flex item will not shrink below its content without this, and the licence
+     text is long: without it the body spills out of the frame instead of
+     scrolling inside it. */
+  min-height: 0;
+  overflow: auto;
+}
+
+.dialog-summary { margin: 0; color: var(--text-muted); }
+.dialog-summary:first-child { color: var(--text); font-weight: 600; }
+
+.dialog-licence {
+  margin: 4px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-family: var(--editor-font);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  user-select: text;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1130,7 +1220,8 @@ body { display: flex; flex-direction: column; }
   .statusbar,
   .drop-overlay,
   .toast,
-  .menu { display: none !important; }
+  .menu,
+  .dialog-backdrop { display: none !important; }
 
   .workspace,
   .pane-preview,

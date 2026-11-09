@@ -3201,7 +3201,12 @@ void SendOptionsToWeb() {
     message += g_app.wrapLines ? L"true" : L"false";
     message += L",\"defaultApp\":";
     message += IsDefaultApplication() ? L"true" : L"false";
-    message += L"}";
+    // The window title carries the version, and the About dialog repeats it:
+    // the release is downloaded as JustViewMD.exe, so nothing else on screen
+    // says which build is running.
+    message += L",\"version\":\"";
+    message += JsonEscape(kAppVersion);
+    message += L"\"}";
     SendToWeb(message);
 }
 

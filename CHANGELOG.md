@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9
+
+* **About JustViewMD** at the end of the Options menu: which build is running,
+  the licence, and the full text of the Apache License 2.0. The text is compiled
+  into the executable and read from there, so a single `.exe` carries its own
+  licence the way section 4(a) of that licence asks, with nothing to install
+  beside it. `Esc`, the close button and a click on the backdrop all close it.
+* The licence is Apache 2.0 from this release on; it was MIT. Earlier releases
+  stay MIT, because that grant cannot be taken back.
+
 ## 1.8
 
 * A formatting bar along the bottom of the editor. Bold, italic, strikethrough,

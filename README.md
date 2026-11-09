@@ -599,6 +599,10 @@ result keeps a checkout buildable without any of those tools.
 
 Apache License 2.0 - see [LICENSE](LICENSE). Copyright 2026 finnuen.
 
+The licence text is built into the program as well: **Options -> About
+JustViewMD** shows it, so a copy of the licence travels with the single `.exe`
+and nothing has to sit beside it.
+
 ## Third-party software
 
 JustViewMD itself is Windows-only C++17 and has no dependencies beyond the

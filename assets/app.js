@@ -43,6 +43,11 @@
   var divider = document.getElementById('divider');
   var dropOverlay = document.getElementById('dropOverlay');
   var toastElement = document.getElementById('toast');
+  var aboutDialog = document.getElementById('aboutDialog');
+  var aboutSummary = document.getElementById('aboutSummary');
+  var aboutLicence = document.getElementById('aboutLicence');
+  var aboutCloseButton = document.getElementById('aboutClose');
+  var aboutReturnFocus = null;
   var contextMenu = document.getElementById('contextMenu');
 
   var statusFile = document.getElementById('statusFile');
@@ -3337,6 +3342,12 @@ function collapseTabs(keep) {
     if (typeof data.defaultApp === 'boolean') {
       settings.defaultApp = data.defaultApp;
     }
+    if (typeof data.version === 'string') {
+      appVersion = data.version;
+      if (!aboutDialog.hidden) {
+        aboutSummary.textContent = aboutSummaryText();
+      }
+    }
     applyViewMode();
     applyWrap();
     applyTheme();
@@ -3440,6 +3451,75 @@ function collapseTabs(keep) {
       showToast(String(data.notice), false);
     }
     refreshOpenMenu();
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* About dialog                                                           */
+  /* ---------------------------------------------------------------------- */
+
+  // Apache 2.0 section 4(a) asks every copy of the program to carry the licence,
+  // and a single .exe has nowhere to put a file beside it.  The text therefore
+  // lives in assets/LICENSE.txt, is embedded as a resource with the rest of the
+  // front end, and is shown here.
+  var appVersion = '';       // filled from the host's settings message
+  var licenceText = null;    // null = not read yet, '' = the read failed
+
+  function aboutSummaryText() {
+    return appVersion ? 'JustViewMD v' + appVersion : 'JustViewMD';
+  }
+
+  function openAboutDialog() {
+    closeContextMenu();
+    aboutSummary.textContent = aboutSummaryText();
+    aboutDialog.hidden = false;
+    aboutReturnFocus = document.activeElement;
+    aboutCloseButton.focus();
+
+    if (licenceText !== null) {
+      if (licenceText) {
+        aboutLicence.textContent = licenceText;
+      }
+      return;
+    }
+
+    aboutLicence.textContent = 'Loading the licence text\u2026';
+    fetch('LICENSE.txt').then(function (response) {
+      if (!response.ok) {
+        throw new Error('HTTP ' + response.status);
+      }
+      return response.text();
+    }).then(function (text) {
+      licenceText = text;
+      aboutLicence.textContent = text;
+    }).catch(function () {
+      licenceText = '';
+      aboutLicence.textContent =
+        'The licence text could not be read from the program. JustViewMD is ' +
+        'released under the Apache License 2.0, Copyright 2026 finnuen; the ' +
+        'full text is the LICENSE file in the JustViewMD repository.';
+    });
+  }
+
+  function closeAboutDialog() {
+    if (aboutDialog.hidden) {
+      return;
+    }
+    aboutDialog.hidden = true;
+    if (aboutReturnFocus && document.contains(aboutReturnFocus)) {
+      aboutReturnFocus.focus();
+    }
+    aboutReturnFocus = null;
+  }
+
+  function initAboutDialog() {
+    aboutCloseButton.addEventListener('click', closeAboutDialog);
+    // The backdrop is the dialog's parent, so a click that lands on it is a
+    // click outside the frame.
+    aboutDialog.addEventListener('mousedown', function (event) {
+      if (event.target === aboutDialog) {
+        closeAboutDialog();
+      }
+    });
   }
 
   /* ---------------------------------------------------------------------- */
@@ -3636,6 +3716,8 @@ function collapseTabs(keep) {
       items.push({ label: 'Get JustViewMD ' + updateState.latest + '...',
         action: function () { postToHost({ type: 'openReleasePage' }); } });
     }
+    items.push({ separator: true });
+    items.push({ label: 'About JustViewMD', action: openAboutDialog });
     return items;
   }
 
@@ -4034,7 +4116,17 @@ function collapseTabs(keep) {
     // Escape closes an open menu wherever the focus happens to be: the menu
     // rows never take focus, so the editor-scoped handler cannot be relied on.
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && !event.isComposing && !contextMenu.hidden) {
+      if (event.key !== 'Escape' || event.isComposing) {
+        return;
+      }
+      if (!aboutDialog.hidden) {
+        // The dialog is modal: the key is spent here, so nothing behind it
+        // reacts to the same press.
+        event.preventDefault();
+        closeAboutDialog();
+        return;
+      }
+      if (!contextMenu.hidden) {
         closeContextMenu();
       }
     }, true);
@@ -4046,6 +4138,11 @@ function collapseTabs(keep) {
 
     document.addEventListener('keydown', function (event) {
       if (event.defaultPrevented) {
+        return;
+      }
+      // The About dialog is modal: while it is open the shortcuts behind it do
+      // nothing, and Escape has already been spent closing it.
+      if (!aboutDialog.hidden) {
         return;
       }
       var key = (event.key || '').toLowerCase();
@@ -4340,6 +4437,7 @@ function collapseTabs(keep) {
     initTabs();
     initFind();
     initMenubar();
+    initAboutDialog();
     updateTabStrip();
 
     if (host) {
