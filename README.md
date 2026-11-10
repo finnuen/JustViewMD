@@ -52,8 +52,8 @@ application, including its front end. Put it wherever you like and run it.
   present (it ships with Windows 11 and current Windows 10 installs; see
   [Requirements](#requirements)).
 * Nothing is installed into `Program Files` and nothing is written to the
-  registry by the release itself: settings, the session and the picture cache
-  live under `%LOCALAPPDATA%\JustViewMD`.
+  registry by the release itself: settings, the session, unsaved buffers and the
+  picture cache live under `%LOCALAPPDATA%\JustViewMD`.
 * *Options → Check for update...* shows the version in use and asks GitHub
   whether a newer release exists. That check also runs quietly in the
   background when the window opens.
@@ -116,7 +116,7 @@ application, including its front end. Put it wherever you like and run it.
   PDF, close tab, close all tabs.
 * **Edit** - undo, redo, cut, copy, paste, select all, find, find and replace.
 * **Options** - view mode (split / editor only / preview only), zoom, line
-  wrapping, keep opened files, start with a blank document, set as default for
+  wrapping, start with a blank document, set as default for
   `.md` files, dark mode, the size of the picture cache with a row that opens
   its folder, Windows default apps, and the update check with the version in
   use beside it. Every switch is remembered
@@ -189,18 +189,20 @@ application, including its front end. Put it wherever you like and run it.
 * The title bar shows the active file name, with `*` while there are unsaved
   changes, and the version in use (`README.md - JustViewMD v1.6`); the active
   tab carries a dot.
-* Unsaved changes are confirmed before anything that would discard them,
-  including closing the window, closing a tab and reloading from disk.
-* **Keep opened files** (Options menu, off by default): the documents open at
-  exit come back on the next start, in the same order, with the same tab active.
-  A file named on the command line joins them as an extra tab (and becomes the
-  active tab), so opening a second document does not throw the first one away;
-  naming a file that is already open activates its tab instead of opening it
-  twice. Files that have since been deleted are skipped.
-* **Start with blank** (Options menu, off by default): the window opens on an
-  empty `Untitled.md` instead of the welcome document. The tab is numbered
-  like any other new tab, so a second blank tab becomes `Untitled-2.md`. Files
-  named on the command line and the "Keep opened files" list still win.
+* Unsaved changes are confirmed before anything that would discard them:
+  closing a tab, closing all tabs, or reloading from disk. Closing the window
+  never asks; the buffers come back as they were on the next start.
+* **Open documents are remembered.** The documents open at exit come back on the
+  next start, in the same order, with the same tab active; there is no switch
+  for this. A file named on the command line joins them as an extra tab (and
+  becomes the active tab), so opening a second document does not throw the
+  first one away; naming a file that is already open activates its tab instead
+  of opening it twice. Files that have since been deleted are skipped.
+* **Start with blank** (Options menu, off by default): when there is nothing to
+  reopen, the window opens on an empty `Untitled.md` instead of the welcome
+  document. The tab is numbered like any other new tab, so a second blank tab
+  becomes `Untitled-2.md`. Documents from the previous run, unsaved buffers and
+  a file named on the command line still win.
 
 **Updates**
 
@@ -396,16 +398,29 @@ from the executable. The picture cache is never pruned by the application
 itself; *Options → Cached images / Open cache folder* shows what it holds and
 takes you to it, and clearing it only costs the pictures being fetched again.
 
+A tab with unsaved changes is written to `unsaved\` as well: one file per tab,
+named with an id and the tab's own name, and an `index.txt` that says which
+document each one belongs to. The copy follows typing a couple of seconds
+behind, and closing the window keeps it: the next start opens it as a tab
+again, still marked unsaved - any file type. Saving the tab, reloading it from
+disk, or closing the tab itself with **No** removes the copy, through the
+Recycle Bin like every other file the application deletes. Only the lines in
+`index.txt` are read, so a stray file in that folder is ignored; copy a draft
+elsewhere if you want to keep it.
+
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `viewMode` | `split` | `split`, `editor` or `preview`. |
 | `darkMode` | `1` | Dark theme. |
 | `wrapLines` | `1` | Soft wrap in the source pane. |
-| `keepOpenedFiles` | `0` | Restore the open documents on the next start. |
 | `startBlank` | `0` | Open an empty tab instead of the welcome document. |
 | `checkForUpdate` | `1` | Ask GitHub for a newer release in the background on start-up. |
 | `sessionOpen` | - | One line per file to reopen, in tab order. |
 | `sessionActive` | - | The file whose tab was active. |
+
+Every start reopens the documents of the previous run; a `keepOpenedFiles`
+line written by an earlier release is ignored and disappears the next time the
+file is written.
 
 Earlier releases kept these values in `HKCU\Software\JustViewMD`. The first
 start of this version reads them, writes the file, and then removes the five
@@ -530,8 +545,8 @@ reader's own browser.
 | Type | Payload | Meaning |
 | --- | --- | --- |
 | `ready` | - | The page is up and wants the tab list and the documents. |
-| `dirty` | `index`, `value` | That tab changed since its last save. |
-| `snapshot` | `index`, `content` | A copy of a buffer, sent when the window loses focus. |
+| `dirty` | `index`, `value`, `generation` | That tab changed since its last save. |
+| `snapshot` | `index`, `content`, `generation` | A copy of a buffer, sent while typing, when the window loses focus, and when a tab is switched. |
 | `save`, `saveAs` | `index`, `content` | Write that tab to its path, or through the file dialog. |
 | `open` | - | The user asked for the file dialog. |
 | `newTab` | - | Add an empty tab. |
@@ -556,8 +571,8 @@ Host to page:
 
 | Type | Payload | Meaning |
 | --- | --- | --- |
-| `settings` | `view`, `dark`, `keepOpened`, `startBlank`, `wrap`, `defaultApp` | The stored options. |
-| `tabs` | `items` (`name`, `path`), `active` | The whole tab list; it is authoritative, so the page drops anything past its end. |
+| `settings` | `view`, `dark`, `startBlank`, `wrap`, `defaultApp` | The stored options. |
+| `tabs` | `generation`, `items` (`name`, `path`), `active` | The whole tab list; it is authoritative, so the page drops anything past its end. The generation counts the strip: a `dirty` or `snapshot` that repeats an older one is dropped, because the tab it named may not be at that index any more. |
 | `document` | `index`, `name`, `path`, `content`, `dirty`, `active` | One document's text. Restoring sends them all, the active one last. |
 | `saved` | `index`, `path`, `name` | A tab was written to disk. |
 | `closeTab` | `index`, `active` | Drop one tab. |

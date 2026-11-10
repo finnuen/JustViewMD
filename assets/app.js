@@ -122,13 +122,16 @@
   var state = {
     tabs: [],
     active: 0,
+    // The strip generation the host last described.  Every message that names a
+    // tab by index repeats it, so the host can drop one that was queued before
+    // a tab was added or removed and no longer means the tab it was made for.
+    tabGeneration: 0,
     wrapLines: true,
     zoom: 1,
     heavy: false,
     settings: {
       viewMode: 'split',       // split | editor | preview
       dark: true,
-      keepOpened: false,
       startBlank: false,
       wrap: true,
       defaultApp: false
@@ -1676,6 +1679,38 @@
     revealJumpButtons();
   }
 
+  // A "#fn-1" link inside the preview is a jump within the document, not a
+  // navigation.  Letting the browser follow it scrolls the page's <body>, which
+  // must never move - it takes the whole window with it - and leaves "#fn-1" in
+  // the address.  So the link is caught here and only the preview pane scrolls.
+  function scrollPreviewToFragment(href) {
+    var id = href.slice(1);
+    if (!id) {
+      return;
+    }
+    try {
+      id = decodeURIComponent(id);
+    } catch (error) {
+      /* a name that is not valid percent-encoding is used as it stands */
+    }
+    var target = document.getElementById(id);
+    if (!target || !markdown.contains(target)) {
+      return;
+    }
+    var offset = target.getBoundingClientRect().top - previewViewport.getBoundingClientRect().top;
+    var top = clamp(previewViewport.scrollTop + offset, 0, maxScroll(previewViewport));
+    programmatic.preview = top;
+    try {
+      previewViewport.scrollTo({ top: top, behavior: 'smooth' });
+    } catch (error) {
+      previewViewport.scrollTop = top;
+    }
+    if (Math.abs(previewViewport.scrollTop - top) < 1) {
+      syncFromPreview();
+      rememberPlace(previewViewport);
+    }
+  }
+
   function initJumpButtons() {
     jumpTopButton.addEventListener('click', function () {
       jumpTo('top');
@@ -1747,7 +1782,8 @@
   function flushSnapshot() {
     var tab = activeTab();
     if (tab && tab.dirty) {
-      postToHost({ type: 'snapshot', index: state.active, content: editor.value });
+      postToHost({ type: 'snapshot', index: state.active, content: editor.value,
+        generation: state.tabGeneration });
     }
   }
 
@@ -1882,6 +1918,9 @@ function collapseTabs(keep) {
   // is the only place where live text lives.
   function reconcileTabs(data) {
     var items = data.items || [];
+    if (typeof data.generation === 'number') {
+      state.tabGeneration = data.generation;
+    }
     // The list from the host is the whole truth: tabs past its end no longer
     // exist (that is how "close all tabs" and "close other tabs" arrive).
     if (state.tabs.length > items.length) {
@@ -2162,7 +2201,8 @@ function collapseTabs(keep) {
     tab.dirty = next;
     updateFileStatus();
     updateTabStrip();
-    postToHost({ type: 'dirty', index: state.active, value: next });
+    postToHost({ type: 'dirty', index: state.active, value: next,
+      generation: state.tabGeneration });
     if (next) {
       scheduleSnapshot();
     }
@@ -2176,7 +2216,8 @@ function collapseTabs(keep) {
       snapshotTimer = null;
       var tab = activeTab();
       if (tab && tab.dirty) {
-        postToHost({ type: 'snapshot', index: state.active, content: editor.value });
+        postToHost({ type: 'snapshot', index: state.active, content: editor.value,
+          generation: state.tabGeneration });
       }
     }, SNAPSHOT_DELAY_MS);
   }
@@ -3330,9 +3371,6 @@ function collapseTabs(keep) {
     if (typeof data.dark === 'boolean') {
       settings.dark = data.dark;
     }
-    if (typeof data.keepOpened === 'boolean') {
-      settings.keepOpened = data.keepOpened;
-    }
     if (typeof data.startBlank === 'boolean') {
       settings.startBlank = data.startBlank;
     }
@@ -3421,14 +3459,6 @@ function collapseTabs(keep) {
     initMermaid(dark);
     mermaidCache.clear();
     renderNow();
-  }
-
-  function setKeepOpened(value) {
-    state.settings.keepOpened = Boolean(value);
-    postSetting('keepOpened', state.settings.keepOpened ? 1 : 0);
-    showToast(state.settings.keepOpened
-      ? 'Files will be reopened on start'
-      : 'Starting with a single empty file', false);
   }
 
   function setStartBlank(value) {
@@ -3695,8 +3725,6 @@ function collapseTabs(keep) {
     items.push({ label: 'Line Wrapping', checked: state.wrapLines,
       action: function () { setWrapLines(!state.wrapLines, true); } });
     items.push({ separator: true });
-    items.push({ label: 'Keep Opened Files', checked: settings.keepOpened,
-      action: function () { setKeepOpened(!settings.keepOpened); } });
     items.push({ label: 'Start with Blank', checked: settings.startBlank,
       action: function () { setStartBlank(!settings.startBlank); } });
     items.push({ label: 'Set as Default for .md Files', checked: settings.defaultApp,
@@ -4107,6 +4135,23 @@ function collapseTabs(keep) {
 
     editor.addEventListener('contextmenu', showContextMenu);
     previewViewport.addEventListener('contextmenu', showContextMenu);
+
+    markdown.addEventListener('click', function (event) {
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey ||
+          event.shiftKey || event.altKey) {
+        return;
+      }
+      var link = event.target.closest ? event.target.closest('a') : null;
+      if (!link) {
+        return;
+      }
+      var href = link.getAttribute('href') || '';
+      if (href.length < 2 || href.charAt(0) !== '#') {
+        return;  // every other link keeps being a navigation
+      }
+      event.preventDefault();
+      scrollPreviewToFragment(href);
+    });
 
     document.addEventListener('mousedown', function (event) {
       if (!contextMenu.hidden && !contextMenu.contains(event.target)) {

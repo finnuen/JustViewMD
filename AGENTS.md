@@ -63,6 +63,25 @@ the ones that are easy to get wrong.
 - Settings and the session live in `%LOCALAPPDATA%\JustViewMD\settings.ini`,
   written atomically.  Nothing goes in the registry: the registry is only ever
   *read* to migrate options from releases that predate the settings file.
+  The session is restored on every start; there is no option for it, and the
+  `keepOpenedFiles` line older releases wrote is ignored.
+- Unsaved buffers live in `%LOCALAPPDATA%\JustViewMD\unsaved`: one text file per
+  dirty tab plus an `index.txt`, written from the snapshot the page already
+  sends (every two seconds, and on tab switch, blur and hide) and again from
+  the text the page reports when the window closes.  Closing the window asks
+  nothing and keeps those copies, so the next start reopens them as dirty tabs,
+  whatever the file type.  Save, reload and closing the tab with "No" delete
+  the copy; deleting goes through the Recycle Bin, never `DeleteFileW`.
+  `LoadDraftIndex()` must run before anything writes the index, and a new `Tab`
+  field that names its draft must be copied in `CloseOthersFlow` like the rest.
+- A tab is named by index between page and host, and the two lists are not
+  always the same shape for a moment: the host drops a tab, and the page has
+  not read the `tabs` message yet.  A snapshot the page queued while a prompt
+  was up - it posts one when it loses focus - would then be written to whatever
+  tab sits at that index, one document's text into another's buffer.
+  `SendTabList()` therefore carries a `generation`, and `dirty` and `snapshot`
+  repeat it; the host drops any that does not match.  Keep that on both sides
+  when a new message names a tab by index.
 - Nothing in the program deletes a cached picture.  The Options menu reports how
   much is cached and opens the folder; what stays and what goes is the user's
   decision in Explorer.

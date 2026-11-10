@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.10
+
+* Open documents are always remembered. *Keep opened files* is gone from the
+  Options menu: a start reopens the documents of the previous run in the same
+  order, with the same tab active, unsaved buffers included, and a file named
+  on the command line joins them.
+* Unsaved buffers survive a crash, and closing the window no longer asks
+  whether to save anything. While a tab has changes that are not in its
+  document, its text is written to `%LOCALAPPDATA%\JustViewMD\unsaved\`, a
+  couple of seconds behind the typing and on a tab switch, a blur or a hide;
+  closing the window writes the newest text one last time. The next start
+  opens those buffers as tabs again, still marked unsaved, whatever the file
+  type. Saving the tab, reloading it, or closing the tab itself with **No**
+  removes its copy, through the Recycle Bin like every other file the
+  application deletes.
+* A footnote reference and its return arrow now scroll the preview pane instead
+  of the page body. Following one used to scroll the body, which left the window
+  with the document shrunk into the top of the frame, a stray status bar at the
+  bottom and no way back, and it left `#fn-1` in the address. Fragment links are
+  handled in the page now, and the body cannot scroll at all.
+
 ## 1.9
 
 * **About JustViewMD** at the end of the Options menu: which build is running,

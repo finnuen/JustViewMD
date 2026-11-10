@@ -1829,6 +1829,18 @@ struct Tab {
     bool mirrorValid = false;
     bool dirty = false;
     bool usesCrLf = true;
+    // Id of this tab's autosaved buffer, 0 while it has none.  See section 7c.
+    int draftId = 0;
+};
+
+// One autosaved buffer: a tab with unsaved text, written to disk so a crash or
+// a kill cannot take it away.  The text itself lives beside the index, named
+// after the id and the tab, with the document's own extension kept.
+struct DraftEntry {
+    int id = 0;
+    std::wstring name;    // the tab name the draft was written under
+    std::wstring path;    // the document it belongs to, empty for a new tab
+    bool usesCrLf = true; // line ending style the document wants back
 };
 
 struct App {
@@ -1857,12 +1869,18 @@ struct App {
     // %LOCALAPPDATA%\JustViewMD\settings.ini.
     std::wstring viewMode = L"split";  // split | editor | preview
     bool darkMode = true;
-    bool keepOpenedFiles = false;
     bool startBlank = false;           // no welcome document on start
     bool wrapLines = true;
     std::vector<std::wstring> sessionPaths;  // files to reopen, in tab order
     std::wstring sessionActive;              // the tab that was active
+    unsigned long long tabGeneration = 0;    // bumped by every SendTabList
     std::string settingsFileCache;     // last text written, to skip no-op writes
+
+    // Unsaved buffers, in %LOCALAPPDATA%\JustViewMD\unsaved (section 7c).
+    std::vector<DraftEntry> drafts;    // every draft on disk, in restore order
+    int nextDraftId = 1;               // never reused, so two files cannot clash
+    int draftActiveId = 0;             // the draft of the tab that was on screen
+    bool draftsLoaded = false;         // the index has been read (writes wait)
 
     int pendingContentCount = 0;       // content messages still expected
     int pendingKeepTab = -1;           // "close other tabs": the tab that stays
@@ -1957,14 +1975,12 @@ std::wstring g_lastDirectory;
     text += g_app.darkMode ? "1" : "0";
     text += "\r\nwrapLines=";
     text += g_app.wrapLines ? "1" : "0";
-    text += "\r\nkeepOpenedFiles=";
-    text += g_app.keepOpenedFiles ? "1" : "0";
     text += "\r\nstartBlank=";
     text += g_app.startBlank ? "1" : "0";
     text += "\r\ncheckForUpdate=";
     text += g_app.checkForUpdate ? "1" : "0";
     text += "\r\n\r\n; The files reopened on the next start, one per line, in tab\r\n";
-    text += "; order.  They are only used when keepOpenedFiles=1.\r\n";
+    text += "; order.  A file named on the command line joins them.\r\n";
     for (const std::wstring& path : g_app.sessionPaths) {
         text += "sessionOpen=";
         text += WideToUtf8(path);
@@ -2012,10 +2028,6 @@ void ApplySettingsText(std::wstring_view text) {
         } else if (EqualsIgnoringCase(key, L"wrapLines")) {
             if (ParseBoolean(value, flag)) {
                 g_app.wrapLines = flag;
-            }
-        } else if (EqualsIgnoringCase(key, L"keepOpenedFiles")) {
-            if (ParseBoolean(value, flag)) {
-                g_app.keepOpenedFiles = flag;
             }
         } else if (EqualsIgnoringCase(key, L"startBlank")) {
             if (ParseBoolean(value, flag)) {
@@ -2109,10 +2121,6 @@ void ApplySettingsText(std::wstring_view text) {
         g_app.darkMode = value != 0;
         found = true;
     }
-    if (ReadRegistryDword(HKEY_CURRENT_USER, kLegacySettingsKey, L"KeepOpenedFiles", value)) {
-        g_app.keepOpenedFiles = value != 0;
-        found = true;
-    }
     if (ReadRegistryDword(HKEY_CURRENT_USER, kLegacySettingsKey, L"StartBlank", value)) {
         g_app.startBlank = value != 0;
         found = true;
@@ -2161,7 +2169,6 @@ void LoadOptions() {
     DebugLog(L"Options: view=" + g_app.viewMode +
              L" dark=" + (g_app.darkMode ? L"1" : L"0") +
              L" wrap=" + (g_app.wrapLines ? L"1" : L"0") +
-             L" keep=" + (g_app.keepOpenedFiles ? L"1" : L"0") +
              L" blank=" + (g_app.startBlank ? L"1" : L"0") +
              L" session=" + std::to_wstring(g_app.sessionPaths.size()));
 }
@@ -2171,7 +2178,8 @@ void SaveOptions() {
 }
 
 // The session is the set of files that had a path: an untitled buffer has
-// nothing to reopen, and reopening files is exactly what the option promises.
+// nothing to reopen by name.  Every start brings it back; a file named on the
+// command line is added to it.
 void SaveSession() {
     g_app.sessionPaths.clear();
     for (const Tab& tab : g_app.tabs) {
@@ -3142,8 +3150,18 @@ void UpdateWindowTitle() {
 
 // Names, paths and which tab is active: everything the strip shows.  The text
 // of the documents never travels with this message.
+//
+// The message also carries a generation: a count of the strip as the host has
+// it now.  The page repeats the generation it last received on every message
+// that names a tab by index, and a message from a strip that has since changed
+// is dropped.  Without that, a snapshot queued while a prompt was up - the page
+// posts one when it loses focus - would be applied to whatever tab ended up at
+// that index, writing one document's text into another's autosaved buffer.
 void SendTabList() {
-    std::wstring message = L"{\"type\":\"tabs\",\"active\":";
+    ++g_app.tabGeneration;
+    std::wstring message = L"{\"type\":\"tabs\",\"generation\":";
+    message += std::to_wstring(g_app.tabGeneration);
+    message += L",\"active\":";
     message += std::to_wstring(g_app.activeTab);
     message += L",\"items\":[";
     for (size_t index = 0; index < g_app.tabs.size(); ++index) {
@@ -3193,8 +3211,6 @@ void SendOptionsToWeb() {
     message += g_app.viewMode;
     message += L"\",\"dark\":";
     message += g_app.darkMode ? L"true" : L"false";
-    message += L",\"keepOpened\":";
-    message += g_app.keepOpenedFiles ? L"true" : L"false";
     message += L",\"startBlank\":";
     message += g_app.startBlank ? L"true" : L"false";
     message += L",\"wrap\":";
@@ -3210,6 +3226,328 @@ void SendOptionsToWeb() {
     SendToWeb(message);
 }
 
+// ===========================================================================
+//  7c. Unsaved buffers
+// ===========================================================================
+//
+// A tab whose text differs from its document is written to
+// %LOCALAPPDATA%\JustViewMD\unsaved while it is being edited, so a crash, a
+// kill or a power cut costs at most the last couple of seconds of typing.  The
+// next start opens those buffers as dirty tabs again, whatever the file type;
+// they are removed as soon as the tab is saved, reloaded, or closed with the
+// changes thrown away.  Nothing is deleted for good: a draft that is no longer
+// needed goes to the Recycle Bin, like every other file this application
+// removes.
+
+[[nodiscard]] std::wstring UnsavedDirectory() {
+    return JoinPath(JoinPath(LocalAppDataDirectory(), kAppName), L"unsaved");
+}
+
+[[nodiscard]] std::wstring DraftIndexPath() {
+    return JoinPath(UnsavedDirectory(), L"index.txt");
+}
+
+// "Untitled-2.md" becomes "7-Untitled-2.md": the id keeps it apart from every
+// other draft, and the extension stays where the user can see it.
+[[nodiscard]] std::wstring DraftFileName(int id, std::wstring_view name) {
+    std::wstring base(name);
+    for (wchar_t& character : base) {
+        if (character < 0x20 || character == L'<' || character == L'>' || character == L':' ||
+            character == L'"' || character == L'/' || character == L'\\' || character == L'|' ||
+            character == L'?' || character == L'*') {
+            character = L'_';
+        }
+    }
+    while (!base.empty() && (base.back() == L' ' || base.back() == L'.')) {
+        base.pop_back();
+    }
+    if (base.empty()) {
+        base = kUntitledName;
+    }
+    if (base.size() > 80) {
+        // Long names are cut at the stem, so the extension survives.
+        const size_t dot = base.find_last_of(L'.');
+        std::wstring extension;
+        if (dot != std::wstring::npos && base.size() - dot <= 16) {
+            extension = base.substr(dot);
+            base.resize(dot);
+        }
+        if (base.size() > 64) {
+            base.resize(64);
+        }
+        base += extension;
+    }
+    return std::to_wstring(id) + L"-" + base;
+}
+
+[[nodiscard]] std::wstring DraftFilePath(const DraftEntry& entry) {
+    return JoinPath(UnsavedDirectory(), DraftFileName(entry.id, entry.name));
+}
+
+void RemoveDraftFile(const std::wstring& path) {
+    if (!FileExists(path)) {
+        return;
+    }
+    std::wstring terminated = path;
+    terminated.push_back(L'\0');
+    terminated.push_back(L'\0');
+    SHFILEOPSTRUCTW operation{};
+    operation.wFunc = FO_DELETE;
+    operation.pFrom = terminated.c_str();
+    // FOF_ALLOWUNDO is the Recycle Bin; the rest keeps the shell quiet.
+    operation.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
+    if (::SHFileOperationW(&operation) != 0) {
+        DebugLog(L"Could not recycle a draft: " + path);
+    }
+}
+
+// The index is rewritten whole: a few short lines, and one write keeps the
+// ids, the files and the active tab in step.
+void WriteDraftIndex() {
+    if (!g_app.draftsLoaded) {
+        return;  // the index on disk has not been read yet
+    }
+    int active = 0;
+    if (g_app.activeTab >= 0 && g_app.activeTab < static_cast<int>(g_app.tabs.size())) {
+        active = g_app.tabs[static_cast<size_t>(g_app.activeTab)].draftId;
+    }
+    g_app.draftActiveId = active;
+
+    std::string text;
+    text += "; JustViewMD unsaved buffers.\r\n";
+    text += "; One draft= line per tab with changes that are not in its document:\r\n";
+    text += "; <id>|<crlf>|<tab name>|<document path>.  The text is in <id>-<tab name>.\r\n";
+    text += "; next= is the next free id, active= the draft of the tab on screen.\r\n";
+    text += "next=";
+    text += std::to_string(g_app.nextDraftId);
+    text += "\r\nactive=";
+    text += std::to_string(active);
+    text += "\r\n";
+    for (const DraftEntry& entry : g_app.drafts) {
+        text += "draft=";
+        text += std::to_string(entry.id);
+        text += entry.usesCrLf ? "|1|" : "|0|";
+        text += WideToUtf8(entry.name);
+        text += "|";
+        text += WideToUtf8(entry.path);
+        text += "\r\n";
+    }
+    if (!EnsureDirectory(UnsavedDirectory()) || !WriteWholeFileAtomically(DraftIndexPath(), text)) {
+        DebugLog(L"Could not write " + DraftIndexPath());
+    }
+}
+
+// Writes the tab's newest text.  Called from the snapshot the page sends while
+// the tab is dirty: every two seconds of typing, and on a tab switch, a blur or
+// a hide.
+void WriteDraftForTab(int index) {
+    if (!g_app.draftsLoaded || index < 0 || index >= static_cast<int>(g_app.tabs.size())) {
+        return;
+    }
+    Tab& tab = g_app.tabs[static_cast<size_t>(index)];
+    if (!tab.dirty || !tab.mirrorValid) {
+        return;
+    }
+    DraftEntry* entry = nullptr;
+    for (DraftEntry& candidate : g_app.drafts) {
+        if (candidate.id == tab.draftId) {
+            entry = &candidate;
+            break;
+        }
+    }
+    if (tab.draftId == 0 || entry == nullptr) {
+        tab.draftId = g_app.nextDraftId++;
+        DraftEntry fresh;
+        fresh.id = tab.draftId;
+        g_app.drafts.push_back(fresh);
+        entry = &g_app.drafts.back();
+    }
+    entry->name = TabNameOf(tab);
+    entry->path = tab.path;
+    entry->usesCrLf = tab.usesCrLf;
+    if (!EnsureDirectory(UnsavedDirectory()) ||
+        !WriteWholeFileAtomically(DraftFilePath(*entry), WideToUtf8(tab.mirror))) {
+        DebugLog(L"Could not write an unsaved buffer");
+        return;
+    }
+    WriteDraftIndex();
+}
+
+// The text is on disk where it belongs now (saved, reloaded, or declined when
+// closing), so the autosaved copy is no longer needed.
+void DropDraft(Tab& tab) {
+    if (tab.draftId == 0) {
+        return;
+    }
+    for (size_t index = 0; index < g_app.drafts.size(); ++index) {
+        if (g_app.drafts[index].id != tab.draftId) {
+            continue;
+        }
+        const std::wstring path = DraftFilePath(g_app.drafts[index]);
+        g_app.drafts.erase(g_app.drafts.begin() + static_cast<std::ptrdiff_t>(index));
+        RemoveDraftFile(path);
+        break;
+    }
+    tab.draftId = 0;
+    WriteDraftIndex();
+}
+
+[[nodiscard]] bool ReadDraftText(const DraftEntry& entry, std::wstring& text) {
+    std::string bytes;
+    if (!ReadWholeFile(DraftFilePath(entry), bytes)) {
+        return false;
+    }
+    std::string_view view(bytes);
+    if (view.size() >= 3 && static_cast<unsigned char>(view[0]) == 0xEF &&
+        static_cast<unsigned char>(view[1]) == 0xBB &&
+        static_cast<unsigned char>(view[2]) == 0xBF) {
+        view.remove_prefix(3);
+    }
+    text = Utf8ToWide(view);
+    return true;
+}
+
+// Reads the index and keeps the drafts whose text is still on disk.  A missing
+// file is forgotten quietly: the buffer it held is gone either way.
+void LoadDraftIndex() {
+    g_app.drafts.clear();
+    g_app.draftActiveId = 0;
+    g_app.nextDraftId = 1;
+    std::string bytes;
+    if (ReadWholeFile(DraftIndexPath(), bytes) && !bytes.empty()) {
+        std::string_view view(bytes);
+        if (view.size() >= 3 && static_cast<unsigned char>(view[0]) == 0xEF &&
+            static_cast<unsigned char>(view[1]) == 0xBB &&
+            static_cast<unsigned char>(view[2]) == 0xBF) {
+            view.remove_prefix(3);
+        }
+        const std::wstring text = Utf8ToWide(view);
+        size_t position = 0;
+        while (position < text.size()) {
+            size_t lineEnd = text.find(L'\n', position);
+            if (lineEnd == std::wstring::npos) {
+                lineEnd = text.size();
+            }
+            const std::wstring line =
+                TrimSpaces(std::wstring_view(text).substr(position, lineEnd - position));
+            position = lineEnd + 1;
+            if (line.empty() || line[0] == L';' || line[0] == L'#') {
+                continue;
+            }
+            const size_t equals = line.find(L'=');
+            if (equals == std::wstring::npos) {
+                continue;
+            }
+            const std::wstring key = TrimSpaces(std::wstring_view(line).substr(0, equals));
+            const std::wstring value = line.substr(equals + 1);
+            if (key == L"next") {
+                g_app.nextDraftId =
+                    std::max(1, static_cast<int>(std::wcstol(value.c_str(), nullptr, 10)));
+            } else if (key == L"active") {
+                g_app.draftActiveId = static_cast<int>(std::wcstol(value.c_str(), nullptr, 10));
+            } else if (key == L"draft") {
+                // <id>|<crlf>|<tab name>|<document path>
+                const size_t first = value.find(L'|');
+                const size_t second =
+                    first == std::wstring::npos ? std::wstring::npos : value.find(L'|', first + 1);
+                const size_t third =
+                    second == std::wstring::npos ? std::wstring::npos : value.find(L'|', second + 1);
+                if (first == std::wstring::npos || second == std::wstring::npos) {
+                    continue;
+                }
+                DraftEntry entry;
+                entry.id = static_cast<int>(std::wcstol(value.substr(0, first).c_str(), nullptr, 10));
+                entry.usesCrLf = value.substr(first + 1, second - first - 1) != L"0";
+                entry.name = value.substr(second + 1, third == std::wstring::npos
+                                                          ? std::wstring::npos
+                                                          : third - second - 1);
+                entry.path = third == std::wstring::npos ? std::wstring() : value.substr(third + 1);
+                if (entry.id <= 0 || entry.name.empty() || !FileExists(DraftFilePath(entry))) {
+                    continue;
+                }
+                bool duplicate = false;
+                for (const DraftEntry& existing : g_app.drafts) {
+                    duplicate = duplicate || existing.id == entry.id;
+                }
+                if (duplicate) {
+                    continue;
+                }
+                g_app.nextDraftId = std::max(g_app.nextDraftId, entry.id + 1);
+                g_app.drafts.push_back(entry);
+            }
+        }
+    }
+    g_app.draftsLoaded = true;
+    if (!g_app.drafts.empty()) {
+        DebugLog(L"Unsaved buffers found: " + std::to_wstring(g_app.drafts.size()));
+    }
+}
+
+// Hands the restored buffers to the page, merging each one into the tab that
+// already shows its document and adding the rest at the end.  The tab the user
+// was on comes back on screen, unless a file was named on the command line:
+// that one was asked for just now, so it stays in front.
+[[nodiscard]] bool ApplyDraftBuffers(bool openedFromCommandLine) {
+    if (g_app.drafts.empty()) {
+        return false;
+    }
+    bool touched = false;
+    int draftActive = -1;
+    for (const DraftEntry& draft : g_app.drafts) {
+        std::wstring text;
+        if (!ReadDraftText(draft, text)) {
+            continue;
+        }
+        int index = draft.path.empty() ? -1 : TabIndexOfPath(draft.path);
+        if (index < 0) {
+            g_app.tabs.push_back(Tab{});
+            index = static_cast<int>(g_app.tabs.size()) - 1;
+            Tab& fresh = g_app.tabs[static_cast<size_t>(index)];
+            fresh.path = draft.path;
+            if (draft.path.empty()) {
+                fresh.untitledName = draft.name;
+            }
+        }
+        Tab& tab = g_app.tabs[static_cast<size_t>(index)];
+        tab.mirror = text;
+        tab.mirrorValid = true;
+        tab.dirty = true;
+        tab.usesCrLf = draft.usesCrLf;
+        tab.draftId = draft.id;
+        touched = true;
+        if (draft.id == g_app.draftActiveId) {
+            draftActive = index;
+        }
+    }
+    if (!touched) {
+        return false;
+    }
+    if (!openedFromCommandLine && draftActive >= 0) {
+        g_app.activeTab = draftActive;
+    }
+    if (g_app.activeTab < 0 || g_app.activeTab >= static_cast<int>(g_app.tabs.size())) {
+        g_app.activeTab = 0;
+    }
+    UpdateWindowTitle();
+    SendTabList();
+    // The active tab goes last: every document message makes its own tab the
+    // one on screen, so the last one sent is where the window ends up.
+    for (int index = 0; index < static_cast<int>(g_app.tabs.size()); ++index) {
+        if (index == g_app.activeTab) {
+            continue;
+        }
+        const Tab& tab = g_app.tabs[static_cast<size_t>(index)];
+        SendDocumentToWeb(index, g_app.activeTab, tab.mirrorValid ? tab.mirror : std::wstring(),
+                          tab.dirty);
+    }
+    const Tab& active = g_app.tabs[static_cast<size_t>(g_app.activeTab)];
+    SendDocumentToWeb(g_app.activeTab, g_app.activeTab,
+                      active.mirrorValid ? active.mirror : std::wstring(), active.dirty);
+    SaveSession();
+    DebugLog(L"Reopened the unsaved buffers");
+    return true;
+}
+
 // Makes a tab the one on screen.  The page is told through the tab list (the
 // text is already there) and the session remembers where the user stopped.
 void RememberDirectoryOf(const std::wstring& path);
@@ -3222,6 +3560,7 @@ void ActivateTab(int index) {
     UpdateWindowTitle();
     SendTabList();
     SaveSession();
+    WriteDraftIndex();  // the draft of the tab on screen is the one to reopen
     // Windows that are behind the active tab do not need a repaint.
     if (g_app.activeTab >= 0 && g_app.activeTab < static_cast<int>(g_app.tabs.size())) {
         const std::wstring path = g_app.tabs[static_cast<size_t>(g_app.activeTab)].path;
@@ -3414,6 +3753,7 @@ void ReloadActiveTab() {
     tab->mirrorValid = true;
     tab->dirty = false;
     tab->usesCrLf = document.usesCrLf;
+    DropDraft(*tab);  // the unsaved text was thrown away
     UpdateWindowTitle();
     SendDocumentToWeb(index, document.text, false);
     SaveSession();
@@ -3472,6 +3812,7 @@ void ReloadActiveTab() {
     tab.mirror = content;
     tab.mirrorValid = true;
     tab.dirty = false;
+    DropDraft(tab);  // the text is in the document now
     RememberDirectoryOf(target);
     UpdateWindowTitle();
 
@@ -3595,6 +3936,9 @@ void CloseTabFlow(int index, const std::wstring& content) {
     if (tab.dirty && !ConfirmSaveForTab(index, content)) {
         return;
     }
+    if (tab.dirty) {
+        DropDraft(tab);  // "No": the unsaved text was thrown away
+    }
     RemoveTab(index);
 }
 
@@ -3617,6 +3961,11 @@ void CloseAllFlow() {
     if (!ConfirmAllDirtyTabs(-1)) {
         return;
     }
+    for (Tab& tab : g_app.tabs) {
+        if (tab.dirty) {
+            DropDraft(tab);  // "No" to every one of them
+        }
+    }
     g_app.tabs.clear();
     g_app.tabs.push_back(MakeUntitledTab());
     g_app.activeTab = 0;
@@ -3636,6 +3985,11 @@ void CloseOthersFlow(int keep) {
         return;
     }
     const Tab kept = g_app.tabs[static_cast<size_t>(keep)];
+    for (int index = 0; index < static_cast<int>(g_app.tabs.size()); ++index) {
+        if (index != keep && g_app.tabs[static_cast<size_t>(index)].dirty) {
+            DropDraft(g_app.tabs[static_cast<size_t>(index)]);  // "No": thrown away
+        }
+    }
 
     std::wstring message = L"{\"type\":\"collapse\",\"keep\":";
     message += std::to_wstring(keep);
@@ -3650,11 +4004,13 @@ void CloseOthersFlow(int keep) {
     tab.untitledName = kept.untitledName;
     tab.mirror = kept.mirror;      // fresh: the page just reported every buffer
     tab.mirrorValid = kept.mirrorValid;
+    tab.dirty = kept.dirty;        // the surviving tab keeps its unsaved state
     tab.usesCrLf = kept.usesCrLf;
+    tab.draftId = kept.draftId;
 
     UpdateWindowTitle();
     SendTabList();
-    SendDocumentToWeb(0, tab.mirror, false);
+    SendDocumentToWeb(0, tab.mirror, tab.dirty);
     SaveSession();
 }
 
@@ -4381,8 +4737,6 @@ void ApplyOptionFromPage(const std::wstring& name, const std::wstring& value) {
     } else if (name == L"darkMode") {
         g_app.darkMode = flag;
         ApplyWindowTheme();
-    } else if (name == L"keepOpenedFiles" || name == L"keepOpened") {
-        g_app.keepOpenedFiles = flag;
     } else if (name == L"startBlank") {
         g_app.startBlank = flag;
     } else if (name == L"wrap") {
@@ -4394,29 +4748,25 @@ void ApplyOptionFromPage(const std::wstring& name, const std::wstring& value) {
 }
 
 void FinishClose() {
+    // Nothing is thrown away on the way out: a tab still marked unsaved keeps
+    // its autosaved copy, and the next start reopens it as it was.  Only
+    // closing the tab itself, or saving it, gets rid of the copy.
     SaveSession();
     ::DestroyWindow(g_app.window);
 }
 
+// Closing the window never asks about anything: the text the page sends back
+// goes into the unsaved folder, and every buffer is reopened as it was on the
+// next start.
 void HandleCloseRequest() {
-    bool anyDirty = false;
-    for (const Tab& tab : g_app.tabs) {
-        anyDirty = anyDirty || tab.dirty;
-    }
-    if (!anyDirty) {
+    if (!g_app.webReady) {
         FinishClose();
         return;
     }
-    if (g_app.webReady) {
-        RequestAllContents(L"close");
-        // If the page does not answer (hung renderer), fall back to the mirrors
-        // so the user is never trapped in the application.
-        ::SetTimer(g_app.window, kTimerCloseFallback, kCloseFallbackMilliseconds, nullptr);
-        return;
-    }
-    if (ConfirmAllDirtyTabs(-1)) {
-        FinishClose();
-    }
+    RequestAllContents(L"close");
+    // If the page does not answer (hung renderer), close anyway: what was
+    // written while typing is the newest state there is.
+    ::SetTimer(g_app.window, kTimerCloseFallback, kCloseFallbackMilliseconds, nullptr);
 }
 
 // ===========================================================================
@@ -4609,12 +4959,12 @@ void HandleWebMessage(const std::wstring& json) {
             }
         } else {
             g_app.webEverLoaded = true;
-            bool loaded = false;
-            // The session comes first, so that a file named on the command line
-            // joins the documents of the previous run instead of replacing them.
-            if (g_app.keepOpenedFiles) {
-                loaded = RestoreSessionTabs();
-            }
+            // The drafts are read before anything else writes to their index.
+            LoadDraftIndex();
+            // The session is always brought back; the command line only adds to
+            // it, so opening a second document does not throw the others away.
+            bool loaded = RestoreSessionTabs();
+            bool openedFromCommandLine = false;
             if (!g_app.pendingOpenPath.empty()) {
                 const std::wstring path = g_app.pendingOpenPath;
                 g_app.pendingOpenPath.clear();
@@ -4622,7 +4972,14 @@ void HandleWebMessage(const std::wstring& json) {
                 // shows that file, and is the active tab either way.
                 if (OpenPathInTab(path, true)) {
                     loaded = true;
+                    openedFromCommandLine = true;
                 }
+            }
+            // Unsaved work comes back whatever the file type and whatever the
+            // options say: losing it because the start was told to be blank
+            // would defeat the point of saving it in the first place.
+            if (ApplyDraftBuffers(openedFromCommandLine)) {
+                loaded = true;
             }
             if (!loaded) {
                 if (g_app.startBlank) {
@@ -4638,10 +4995,27 @@ void HandleWebMessage(const std::wstring& json) {
         return;
     }
 
+    // Both of these name a tab by its position in the strip, and the page posts
+    // them on its own (an edit, a lost focus, a timer), so one can still be in
+    // flight when the strip has already changed.  A message from an older strip
+    // is dropped: the tab it meant may not be at that index any more.
+    if (type == L"dirty" || type == L"snapshot") {
+        const double generation = reader.GetNumber(L"generation", -1.0);
+        if (generation != static_cast<double>(g_app.tabGeneration)) {
+            DebugLog(L"Stale " + type + L" dropped: the tab strip has changed");
+            return;
+        }
+    }
+
     if (type == L"dirty") {
         const int index = static_cast<int>(reader.GetNumber(L"index", -1));
         if (index >= 0 && index < static_cast<int>(g_app.tabs.size())) {
-            g_app.tabs[static_cast<size_t>(index)].dirty = reader.GetBool(L"value");
+            Tab& tab = g_app.tabs[static_cast<size_t>(index)];
+            tab.dirty = reader.GetBool(L"value");
+            if (!tab.dirty) {
+                // Undone back to the saved text: there is nothing to reopen.
+                DropDraft(tab);
+            }
             UpdateWindowTitle();
         }
         return;
@@ -4652,6 +5026,7 @@ void HandleWebMessage(const std::wstring& json) {
             Tab& tab = g_app.tabs[static_cast<size_t>(index)];
             tab.mirror = reader.GetString(L"content");
             tab.mirrorValid = true;
+            WriteDraftForTab(index);
         }
         return;
     }
@@ -4800,9 +5175,13 @@ void HandleWebMessage(const std::wstring& json) {
         g_app.pendingContentCount = 0;
 
         if (reason == L"close") {
-            if (ConfirmAllDirtyTabs(-1)) {
-                FinishClose();
+            // The page has just handed over the newest text of every tab, so
+            // the buffers are written before the window goes: they come back
+            // unsaved on the next start.
+            for (int tab = 0; tab < static_cast<int>(g_app.tabs.size()); ++tab) {
+                WriteDraftForTab(tab);
             }
+            FinishClose();
         } else if (reason == L"closeAll") {
             CloseAllFlow();
         } else if (reason == L"closeOthers") {
@@ -5138,7 +5517,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             g_app.pendingContentReason.clear();
             g_app.pendingContentCount = 0;
             DebugLog(L"Content fallback: the page did not answer in time");
-            if (reason == L"close" && ConfirmAllDirtyTabs(-1)) {
+            if (reason == L"close") {
+                // The mirrors are the newest text there is; keep them.
+                for (int tab = 0; tab < static_cast<int>(g_app.tabs.size()); ++tab) {
+                    WriteDraftForTab(tab);
+                }
                 FinishClose();
             }
         }

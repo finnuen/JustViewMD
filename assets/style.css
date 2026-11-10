@@ -125,7 +125,10 @@ html, body {
   height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  /* 'clip' rather than 'hidden': hidden still leaves a box that a fragment
+     link can scroll, and scrolling the body takes the whole window with it.
+     clip is not a scroll container at all, so the page cannot move. */
+  overflow: clip;
   background: var(--bg);
   color: var(--text);
   font-family: var(--ui-font);

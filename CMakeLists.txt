@@ -15,7 +15,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(JustViewMD VERSION 1.9 LANGUAGES CXX)
+project(JustViewMD VERSION 1.10 LANGUAGES CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "JustViewMD is a Windows desktop application.")
