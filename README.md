@@ -121,11 +121,14 @@ application, including its front end. Put it wherever you like and run it.
   its folder, Windows default apps, and the update check with the version in
   use beside it. Every switch is remembered
   between runs. The menu stays open while its switches are flipped, so several
-  can be changed in one go; clicking somewhere else or pressing `Escape` closes
-  it. The menu never removes a cached picture; it only tells you what is there.
-* `Alt+F`, `Alt+E`, `Alt+O` open a menu with the keyboard. Once a menu is
-  open, sliding along the menu bar switches menus; clicking somewhere else
-  closes it.
+  can be changed in one go. The menu never removes a cached picture; it only
+  tells you what is there.
+* The menu bar opens on hover: rest the pointer on **File**, **Edit** or
+  **Options** and its menu comes down, and sliding along the bar to another one
+  replaces it. Moving the pointer away from the bar and the open menu closes it,
+  as do `Escape` and a click somewhere else. A click still opens a menu at once,
+  for a press that lands before the pointer has rested.
+* `Alt+F`, `Alt+E`, `Alt+O` open a menu with the keyboard.
 
 **Editing**
 

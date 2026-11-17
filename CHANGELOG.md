@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.11
+
+* The menu bar opens on hover. Resting the pointer on **File**, **Edit** or
+  **Options** brings its menu down without a click, and sliding along the bar
+  replaces it; moving away from the bar and the menu closes it. A click still
+  opens one at once.
+* Buttons act when the mouse button is released, not when it is pressed. The
+  tab close button was the one that did not: pressing it closed the tab at
+  once, so a press the user dragged off - or took back - still closed it. It
+  now closes on release, over the button it was pressed on, and pressing it
+  no longer selects the tab behind it. A middle click on a tab closes it on
+  release too, and only over the tab it started on. The bars on the find
+  scrollbar and the About dialog's backdrop follow the same rule.
+
 ## 1.10
 
 * Open documents are always remembered. *Keep opened files* is gone from the

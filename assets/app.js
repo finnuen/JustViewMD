@@ -24,6 +24,8 @@
 
   var RENDER_DELAY_MS = 100;        // debounce for live typing
   var SNAPSHOT_DELAY_MS = 2000;     // buffer mirror sent to the host when dirty
+  var MENUBAR_HOVER_MS = 200;       // rest on a menu bar button this long to open it
+  var MENUBAR_CLOSE_MS = 160;       // grace to cross from the button into the menu
   var HEAVY_SOURCE_BYTES = 1500000; // above this, skip highlighting and diagrams
   var MERMAID_CACHE_LIMIT = 200;
   var MATH_CACHE_LIMIT = 4000;
@@ -2046,6 +2048,7 @@ function collapseTabs(keep) {
   // business going near it.  The tab follows the pointer live, so there is no
   // separate drop indicator to keep in sync.
   var tabDrag = null;   // { tab, startX, startY, moving } between down and up
+  var middlePressTab = null;  // the tab a middle button went down on, until it comes up
 
   // The gap in the strip the pointer is over, counted in tabs to its left, or
   // -1 while it is not over a tab at all.
@@ -2133,6 +2136,22 @@ function collapseTabs(keep) {
       tabStrip.classList.remove('is-reordering');
     }
     updateTabStrip();
+  }
+
+  // A middle click closes the tab, on release and only when the release lands
+  // on the tab the press started on.  A press that slides off, or a window that
+  // loses the pointer, closes nothing.
+  function endTabPress(event) {
+    if (!middlePressTab) {
+      return;
+    }
+    var pressed = middlePressTab;
+    middlePressTab = null;
+    var over = event.target && event.target.closest ? event.target.closest('.tab') : null;
+    if (over !== pressed) {
+      return;
+    }
+    requestCloseTab(Number(pressed.getAttribute('data-index')));
   }
 
   // The strip reserves room for the horizontal scrollbar only while the tabs
@@ -3544,8 +3563,9 @@ function collapseTabs(keep) {
   function initAboutDialog() {
     aboutCloseButton.addEventListener('click', closeAboutDialog);
     // The backdrop is the dialog's parent, so a click that lands on it is a
-    // click outside the frame.
-    aboutDialog.addEventListener('mousedown', function (event) {
+    // click outside the frame.  On release, like every other control: a press
+    // that started on the frame and slid off its edge does not close it.
+    aboutDialog.addEventListener('click', function (event) {
       if (event.target === aboutDialog) {
         closeAboutDialog();
       }
@@ -3558,6 +3578,8 @@ function collapseTabs(keep) {
 
   var activeMenuName = null;
   var menuAnchor = { x: 0, y: 0 };   // where the open menu sits, in client pixels
+  var menubarOpenTimer = null;       // opens the menu under a resting pointer
+  var menubarCloseTimer = null;      // closes it once the pointer has left both
 
   function closeContextMenu() {
     if (!contextMenu.hidden) {
@@ -3570,6 +3592,15 @@ function collapseTabs(keep) {
         menuButtons[name].setAttribute('aria-expanded', 'false');
       }
     });
+  }
+
+  // A menu opened while the pointer was on its way out must not be closed by
+  // the timer that leaving the previous one started.
+  function cancelMenubarClose() {
+    if (menubarCloseTimer) {
+      clearTimeout(menubarCloseTimer);
+      menubarCloseTimer = null;
+    }
   }
 
   // Builds the rows of a menu.  A checkable row leaves the menu open when it
@@ -3750,6 +3781,7 @@ function collapseTabs(keep) {
   }
 
   function toggleMenubarMenu(name) {
+    cancelMenubarClose();
     if (activeMenuName === name && !contextMenu.hidden) {
       closeContextMenu();
       return;
@@ -4314,9 +4346,19 @@ function collapseTabs(keep) {
         return;
       }
       var index = Number(tab.getAttribute('data-index'));
-      if (event.target.closest('.tab-close') || event.button === 1) {
+      // The close button acts on release, not on press: pressing it only arms
+      // it, and a press that slides off before the release is cancelled, the
+      // way a Win32 button behaves.  The default is still suppressed so the
+      // press neither selects the tab nor takes the caret out of the editor.
+      if (event.target.closest('.tab-close')) {
         event.preventDefault();
-        requestCloseTab(index);
+        return;
+      }
+      if (event.button === 1) {
+        // Middle click closes a tab too, and also on release, over the tab the
+        // press started on.
+        event.preventDefault();
+        middlePressTab = tab;
         return;
       }
       if (event.button === 0) {
@@ -4331,11 +4373,29 @@ function collapseTabs(keep) {
       }
     });
 
+    // A click is a press and a release on the same control, which is what the
+    // browser's click event means: it never fires for a press that was dragged
+    // off, so a button cannot be set off by a press the user took back.
+    tabList.addEventListener('click', function (event) {
+      var close = event.target.closest ? event.target.closest('.tab-close') : null;
+      if (!close) {
+        return;
+      }
+      var tab = close.closest('.tab');
+      if (!tab) {
+        return;
+      }
+      event.preventDefault();
+      requestCloseTab(Number(tab.getAttribute('data-index')));
+    });
+
     // The drag lives on the window rather than on the tab: the pointer may
     // leave the strip - and the tab it started on - without ending it.
     window.addEventListener('mousemove', onTabDragMove);
     window.addEventListener('mouseup', endTabDrag);
+    window.addEventListener('mouseup', endTabPress);
     window.addEventListener('blur', endTabDrag);
+    window.addEventListener('blur', endTabPress);
 
     tabList.addEventListener('contextmenu', function (event) {
       var tab = event.target.closest ? event.target.closest('.tab') : null;
@@ -4404,16 +4464,29 @@ function collapseTabs(keep) {
     replaceOneButton.addEventListener('click', replaceCurrent);
     replaceAllButton.addEventListener('click', replaceAllMatches);
 
-    // A bar on the scrollbar goes to that match.  mousedown rather than click,
-    // and with the default prevented: that is what stops the press from moving
-    // the focus out of the find box, and from being read as a drag of the
-    // scrollbar, so the user can carry on typing.
-    findScroller.addEventListener('mousedown', function (event) {
+    // A bar on the scrollbar goes to that match when it is released, like any
+    // other button.  The mousedown only has its default prevented: that is what
+    // stops the press from moving the focus out of the find box, and from being
+    // read as a drag of the scrollbar, so the user can carry on typing.
+    function tickFromEvent(event) {
       var tick = event.target;
       while (tick && tick !== findScroller && !tick.classList.contains('find-tick')) {
         tick = tick.parentNode;
       }
       if (!tick || tick === findScroller || !tick.dataset || tick.dataset.match === undefined) {
+        return null;
+      }
+      return tick;
+    }
+
+    findScroller.addEventListener('mousedown', function (event) {
+      if (tickFromEvent(event)) {
+        event.preventDefault();
+      }
+    });
+    findScroller.addEventListener('click', function (event) {
+      var tick = tickFromEvent(event);
+      if (!tick) {
         return;
       }
       event.preventDefault();
@@ -4450,21 +4523,73 @@ function collapseTabs(keep) {
   }
 
   function initMenubar() {
+    function cancelOpen() {
+      if (menubarOpenTimer) {
+        clearTimeout(menubarOpenTimer);
+        menubarOpenTimer = null;
+      }
+    }
+
+    // Leaving a button is not leaving the menu: the pointer is usually on its
+    // way down into it, one pixel below, so the close waits a moment and is
+    // called off the moment the pointer reaches the menu or another button.
+    function scheduleClose() {
+      cancelMenubarClose();
+      menubarCloseTimer = setTimeout(function () {
+        menubarCloseTimer = null;
+        closeContextMenu();
+      }, MENUBAR_CLOSE_MS);
+    }
+
     Object.keys(menuButtons).forEach(function (name) {
       var button = menuButtons[name];
       if (!button) {
         return;
       }
+      // A click still opens (or closes) at once: the pointer may not have
+      // rested long enough to open by hover, and the keyboard arrives here too.
       button.addEventListener('mousedown', function (event) {
         event.preventDefault();
+        cancelOpen();
+        cancelMenubarClose();
         toggleMenubarMenu(name);
       });
-      // Once a menu is open, sliding along the menu bar switches menus.
       button.addEventListener('mouseenter', function () {
+        cancelMenubarClose();
         if (activeMenuName && activeMenuName !== name && !contextMenu.hidden) {
+          // A menu is already down: sliding along the bar changes it at once.
+          cancelOpen();
           toggleMenubarMenu(name);
+          return;
+        }
+        if (activeMenuName === name && !contextMenu.hidden) {
+          return;   // its own menu is already down
+        }
+        // Resting on a button opens its menu.  Passing over the bar on the way
+        // somewhere else does not, which is what the delay is for.
+        cancelOpen();
+        menubarOpenTimer = setTimeout(function () {
+          menubarOpenTimer = null;
+          if (button.matches(':hover')) {
+            toggleMenubarMenu(name);
+          }
+        }, MENUBAR_HOVER_MS);
+      });
+      button.addEventListener('mouseleave', function () {
+        cancelOpen();
+        if (!contextMenu.hidden) {
+          scheduleClose();
         }
       });
+    });
+
+    // The menu holds itself open while the pointer is on it, and closes a
+    // moment after the pointer has left it and the menu bar.
+    contextMenu.addEventListener('mouseenter', cancelMenubarClose);
+    contextMenu.addEventListener('mouseleave', function () {
+      if (!contextMenu.hidden) {
+        scheduleClose();
+      }
     });
   }
 
