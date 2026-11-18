@@ -16,6 +16,12 @@ pictures a document points at and, unless it is switched off, the update check -
 both made by the host, never by the page (see
 [The offline guarantee](#the-offline-guarantee)).
 
+<p align="center">
+  <img src="docs/reflect.png" alt="A table selected in the editor is highlighted in the rendered preview beside it" width="900">
+</p>
+
+<p align="center">Select in either pane, and the same words are selected in the other.</p>
+
 ```
 +--------------------------------------------------------------------------+
 | File  Edit  Options      one.md x | notes.md x | Untitled.md x | +        |
@@ -33,7 +39,7 @@ both made by the host, never by the page (see
 | **Download** | One file, `JustViewMD.exe`, about 5 MB (x64) - no installer, nothing to unpack |
 | **Runs on** | Windows 10 1809 or newer, Windows 11; ARM64 builds from source |
 | **Needs** | The Microsoft Edge **WebView2 Runtime**, which ships with Windows |
-| **Markdown** | GitHub Flavored Markdown: tables, task lists, footnotes, strikethrough, autolinks |
+| **Markdown** | GitHub Flavored Markdown: tables, task lists, footnotes, strikethrough, autolinks, callouts |
 | **Rendering** | KaTeX math, Mermaid diagrams, Prism syntax highlighting (30+ languages) |
 | **Documents** | `.md`, `.markdown`, `.mdx`, `.txt`, `.text`; drag and drop; Explorer context menu |
 | **Windows manners** | Tabs, `Ctrl+S`, find and replace, line-number gutter, a formatting bar, light and dark themes, settings under `%LOCALAPPDATA%`, no admin rights |
@@ -137,11 +143,14 @@ application, including its front end. Put it wherever you like and run it.
 * Status bar with cursor position, word, character and byte counts.
 * A formatting bar at the bottom of the editor. One press inserts the Markdown
   around the selection - bold, italic, strikethrough, inline code, superscript,
-  subscript, H1-H3, block quote, bulleted, numbered and task lists, fenced code,
-  table, horizontal rule, footnote, link, image, inline and display math, a
-  Mermaid diagram - and the result appears in the preview as it is written.
-  Pressing the same button again removes what it added, one `Ctrl+Z` undoes the
-  whole change, and every button names itself on hover.
+  subscript, H1-H3, block quote, callout, bulleted, numbered and task lists,
+  fenced code, table, horizontal rule, footnote, link, image, inline and display
+  math, a Mermaid diagram - and the result appears in the preview as it is
+  written. Pressing the same button again removes what it added, one `Ctrl+Z`
+  undoes the whole change, and every button names itself on hover. The image
+  button inserts a centred picture with a width, which Markdown itself cannot
+  say: a selected address becomes its source, and a selected `![alt](path)` is
+  turned into that block.
 * Realtime preview, debounced while typing.
 * Find and replace with match highlighting, `Enter` / `F3` for next,
   `Shift+F3` for previous, `Ctrl+Enter` to replace, case, whole-word and
@@ -163,15 +172,32 @@ application, including its front end. Put it wherever you like and run it.
 **Rendering**
 
 * GitHub Flavored Markdown - tables, task lists, strikethrough, autolinks,
-  footnotes.
+  footnotes, and callouts: a blockquote that opens with `[!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` is drawn as a titled box with an
+  icon, and a title written after the marker replaces the default one.
+* A single newline joins its paragraph, which is what the dialect says; a line
+  that really ends carries two trailing spaces or a `<br>`.
 * Math with KaTeX: `$inline$`, `$$display$$`, `\(inline\)`, `\[display\]`.
 * Diagrams with Mermaid, fenced as ````` ```mermaid `````.
-* Syntax highlighting with Prism for 30+ languages.
+* Syntax highlighting with Prism for 30+ languages, and a copy button in the
+  corner of every fenced block, shown while the pointer is over it.
 * Pictures that sit next to the document: a relative address
   (`assets/demo.png`, `../shared/x.png`), an absolute Windows path or a
   `file:///` address is read from the disk by the host and shown where it lies.
   Nothing is copied into the picture cache, and a picture that is missing keeps
-  the broken-image placeholder and says why on hover.
+  the broken-image placeholder and says why on hover. A Windows path works in
+  `![alt](E:\Pictures\shot.png)` as well as in an `<img>` tag, and a
+  `<p align="center">` around it centres the picture, with `width` and `height`
+  honoured.
+* A link in the rendered document never loads inside the window, because the
+  window is the program: an address with a scheme goes to the reader's own
+  browser, a link to another document opens it in a tab, and a link to any other
+  file opens that file in whatever program owns it. A name relative to the
+  document is resolved against its folder, and a link to a file that is not
+  there says so instead of doing nothing.
+* A `<picture>` that offers one file per colour scheme is resolved against the
+  theme the window is using, so the dark and the light screenshot each appear
+  in their own theme. A `srcset` on an `<img>` is resolved the same way.
 * Pictures that a document points at on the web: the host downloads each one
   once into `%LOCALAPPDATA%\JustViewMD\cache` and shows it from there, so a
   document with online images also renders offline once it has been opened.
@@ -181,6 +207,13 @@ application, including its front end. Put it wherever you like and run it.
 * Scroll synchronisation driven by the document itself: each rendered block
   knows the source line it came from, so both panes follow the same line
   rather than merely the same percentage.
+* A selection crosses both ways. Words picked in the editor are painted in the
+  preview where they sit, and words picked in the preview are selected in the
+  source, which takes the focus so the next keystroke lands there. A selection
+  that starts or ends inside a word is matched from that place rather than from
+  the start of the word, a phrase that occurs more than once is matched where it
+  was picked, a word is selected together with the inline markup that wraps it,
+  and a click in either pane lets the selection go.
 
 **Files**
 

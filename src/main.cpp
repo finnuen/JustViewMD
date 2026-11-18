@@ -3068,6 +3068,50 @@ void OpenReleasePage() {
     }
 }
 
+[[nodiscard]] bool OpenPathInTab(const std::wstring& path, bool showErrors);
+
+// The extensions this program opens in a tab.  A link that names one of them is
+// a document, and following it should add a tab rather than start another
+// program.
+[[nodiscard]] bool IsDocumentPath(const std::wstring& path) {
+    const size_t dot = path.find_last_of(L'.');
+    const size_t slash = path.find_last_of(L"\\/");
+    if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash)) {
+        return false;
+    }
+    std::wstring extension = path.substr(dot);
+    ::CharLowerBuffW(extension.data(), static_cast<DWORD>(extension.size()));
+    return extension == L".md" || extension == L".markdown" || extension == L".mdx" ||
+           extension == L".txt" || extension == L".text";
+}
+
+// A link a document carries.  The window is the program, so nothing a document
+// links to is ever loaded in it: a document opens in a tab, and everything else
+// - a web page, a picture, a folder - goes to whatever owns it.
+void FollowDocumentLink(const std::wstring& target) {
+    if (target.empty()) {
+        return;
+    }
+    if (IsAbsoluteWindowsPath(target)) {
+        if (!FileExists(target)) {
+            std::wstring message = L"{\"type\":\"linkMissing\",\"path\":\"";
+            message += JsonEscape(target);
+            message += L"\"}";
+            SendToWeb(message);
+            return;
+        }
+        if (IsDocumentPath(target)) {
+            (void)OpenPathInTab(target, true);
+            return;
+        }
+    }
+    const HINSTANCE opened = ::ShellExecuteW(g_app.window, L"open", target.c_str(), nullptr, nullptr,
+                                             SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(opened) <= 32) {
+        DebugLog(L"ShellExecuteW could not follow a document link");
+    }
+}
+
 // --- Tabs -------------------------------------------------------------------
 
 [[nodiscard]] Tab* ActiveTab() {
@@ -5149,6 +5193,10 @@ void HandleWebMessage(const std::wstring& json) {
     }
     if (type == L"openReleasePage") {
         OpenReleasePage();
+        return;
+    }
+    if (type == L"openLink") {
+        FollowDocumentLink(reader.GetString(L"url"));
         return;
     }
     if (type == L"log") {

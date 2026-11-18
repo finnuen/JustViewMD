@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    JustViewMD - front end
    --------------------------------------------------------------------------
    Rendering pipeline, in order:
@@ -538,6 +538,96 @@
   }
 
   /* ---------------------------------------------------------------------- */
+  /* Callouts                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  // "> [!NOTE]" and its four companions open a callout.  The marker is the
+  // first thing in the blockquote: what follows it on that line is the title,
+  // and the rest of the quote is the body.  The quote becomes a div so a
+  // callout is not announced as a quotation, and the two themes colour it from
+  // the same rules.
+  var ALERT_KINDS = {
+    note: 'Note',
+    tip: 'Tip',
+    important: 'Important',
+    warning: 'Warning',
+    caution: 'Caution'
+  };
+
+  var ALERT_ICONS = {
+    note: '<circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+          '<path d="M8 7.1v4.4M8 4.5v.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
+    tip: '<path d="M8 1.4a4.2 4.2 0 0 0-2.5 7.6c.4.3.6.7.6 1.1v.3h3.8v-.3c0-.4.2-.8.6-1.1A4.2 4.2 0 0 0 8 1.4Z" ' +
+         'fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
+         '<path d="M6.4 12h3.2M6.9 14.1h2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+    important: '<circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+               '<path d="M8 4.4v4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+               '<circle cx="8" cy="11.7" r=".9" fill="currentColor"/>',
+    warning: '<path d="M8 1.9 14.8 14H1.2Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>' +
+             '<path d="M8 6v3.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>' +
+             '<circle cx="8" cy="11.7" r=".85" fill="currentColor"/>',
+    caution: '<path d="M5.1 1.2h5.8l3.9 3.9v5.8l-3.9 3.9H5.1L1.2 10.9V5.1Z" fill="none" ' +
+             'stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>' +
+             '<path d="M8 4.4v4.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>' +
+             '<circle cx="8" cy="11.5" r=".85" fill="currentColor"/>'
+  };
+
+  function alertIcon(kind) {
+    return '<svg class="markdown-alert-icon" viewBox="0 0 16 16" width="16" height="16" ' +
+           'aria-hidden="true">' + ALERT_ICONS[kind] + '</svg>';
+  }
+
+  function convertAlerts(container) {
+    var quotes = container.querySelectorAll('blockquote');
+    for (var index = 0; index < quotes.length; ++index) {
+      var quote = quotes[index];
+      var first = quote.firstElementChild;
+      if (!first || first.tagName !== 'P' || !first.firstChild) {
+        continue;
+      }
+      // The marker is ordinary text at the start of the first run, which marked
+      // leaves whole: it is not a link, code or emphasis.
+      var run = first.firstChild;
+      if (run.nodeType !== 3) {
+        continue;
+      }
+      var match = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]([ \t]*)([^\n]*)/i.exec(run.nodeValue);
+      if (!match) {
+        continue;
+      }
+      var kind = match[1].toLowerCase();
+      var custom = match[3].trim();
+      // The rest of the marker line is the title and the body starts on the
+      // next line, whether marked kept that newline or turned it into a <br>.
+      var rest = run.nodeValue.slice(match[0].length);
+      var lineEnd = rest.indexOf('\n');
+      rest = lineEnd === -1 ? '' : rest.slice(lineEnd + 1);
+      if (rest) {
+        run.nodeValue = rest;
+      } else {
+        run.parentNode.removeChild(run);
+      }
+      while (first.firstChild && first.firstChild.nodeName === 'BR') {
+        first.removeChild(first.firstChild);
+      }
+      if (!first.firstChild) {
+        first.parentNode.removeChild(first);
+      }
+
+      var callout = document.createElement('div');
+      callout.className = 'markdown-alert markdown-alert-' + kind;
+      var title = document.createElement('p');
+      title.className = 'markdown-alert-title';
+      title.innerHTML = alertIcon(kind) + escapeHtml(custom || ALERT_KINDS[kind]);
+      callout.appendChild(title);
+      while (quote.firstChild) {
+        callout.appendChild(quote.firstChild);
+      }
+      quote.parentNode.replaceChild(callout, quote);
+    }
+  }
+
+  /* ---------------------------------------------------------------------- */
   /* Prism and Mermaid                                                      */
   /* ---------------------------------------------------------------------- */
 
@@ -614,6 +704,94 @@
           }
         });
       }(blocks[index]));
+    }
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Copying a code block                                                   */
+  /* ---------------------------------------------------------------------- */
+
+  var COPY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+    '<rect x="5.3" y="5.3" width="8" height="8" rx="1.4" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.4"/>' +
+    '<path d="M10.7 5.3V3.7a1.4 1.4 0 0 0-1.4-1.4H3.7a1.4 1.4 0 0 0-1.4 1.4v5.6a1.4 1.4 0 0 0 1.4 1.4h1.6" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+
+  var COPIED_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+    '<path d="M3.3 8.5 6.2 11.4 12.7 4.8" fill="none" stroke="currentColor" stroke-width="1.9" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function copyPlainText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.top = '-1000px';
+      document.body.appendChild(area);
+      area.select();
+      var copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } catch (error) {
+        copied = false;
+      }
+      document.body.removeChild(area);
+      if (copied) {
+        resolve();
+      } else {
+        reject(new Error('copy failed'));
+      }
+    });
+  }
+
+  // A fenced block gets a button in its corner.  The block is wrapped so the
+  // button can sit still while the code scrolls under it, and the button is a
+  // sibling of the code so it is never part of the text that is copied.
+  function addCodeCopyButtons(container) {
+    var blocks = container.querySelectorAll('pre > code');
+    for (var index = 0; index < blocks.length; ++index) {
+      var code = blocks[index];
+      if (code.classList.contains('language-mermaid')) {
+        continue;   // drawn as a diagram, so there is no text to copy
+      }
+      var pre = code.parentElement;
+      if (!pre || (pre.parentElement && pre.parentElement.classList.contains('code-block'))) {
+        continue;
+      }
+      var wrapper = document.createElement('div');
+      wrapper.className = 'code-block';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'code-copy';
+      button.title = 'Copy code';
+      button.setAttribute('aria-label', 'Copy code');
+      button.innerHTML = COPY_ICON;
+      button.addEventListener('click', function () {
+        var target = this.parentElement.querySelector('pre > code');
+        var text = target ? target.textContent : '';
+        var control = this;
+        copyPlainText(text).then(function () {
+          control.innerHTML = COPIED_ICON;
+          control.classList.add('is-copied');
+          control.title = 'Copied';
+          clearTimeout(control.copyTimer);
+          control.copyTimer = setTimeout(function () {
+            control.innerHTML = COPY_ICON;
+            control.classList.remove('is-copied');
+            control.title = 'Copy code';
+          }, 1600);
+        }).catch(function () {
+          showToast('Copy failed', true);
+        });
+      });
+      wrapper.appendChild(button);
     }
   }
 
@@ -697,6 +875,57 @@
       image.removeAttribute('src');
       applyRemoteImages(markdown);
     });
+  }
+
+  // A <picture> offers one file per colour scheme.  The file is chosen here
+  // from the theme this window is using, so the picture agrees with the pane
+  // around it; left to the browser it would follow the operating system's
+  // setting, which is not what the reader picked.
+  function firstSrcsetAddress(value) {
+    var text = String(value || '').replace(/^\s+/, '');
+    if (!text) {
+      return '';
+    }
+    var comma = text.indexOf(',');
+    var candidate = comma === -1 ? text : text.slice(0, comma);
+    return candidate.trim().split(/\s+/)[0] || '';
+  }
+
+  function applyPictureSources(container) {
+    var pictures = container.querySelectorAll('picture');
+    for (var index = 0; index < pictures.length; ++index) {
+      var picture = pictures[index];
+      var image = picture.querySelector('img');
+      var sources = picture.querySelectorAll('source');
+      if (!image) {
+        continue;
+      }
+      for (var option = 0; option < sources.length; ++option) {
+        var media = sources[option].getAttribute('media') || '';
+        var scheme = /prefers-color-scheme\s*:\s*(dark|light)/i.exec(media);
+        var matches;
+        if (scheme) {
+          matches = (scheme[1].toLowerCase() === 'dark') === Boolean(state.settings.dark);
+        } else if (media) {
+          matches = window.matchMedia(media).matches;
+        } else {
+          matches = true;
+        }
+        if (!matches) {
+          continue;
+        }
+        var address = firstSrcsetAddress(sources[option].getAttribute('srcset'));
+        if (address) {
+          image.setAttribute('src', address);
+        }
+        break;
+      }
+      // The sources go: left in place, the browser would pick from them by the
+      // system setting and override the file chosen above.
+      for (var removal = sources.length - 1; removal >= 0; --removal) {
+        sources[removal].parentNode.removeChild(sources[removal]);
+      }
+    }
   }
 
   function applyRemoteImages(container) {
@@ -790,20 +1019,24 @@
     if (/^(?:data|blob|https?):/i.test(source)) {
       return false;
     }
-    if (/^file:/i.test(source)) {
+    // The renderer percent-encodes a Markdown destination, so a Windows path
+    // written as E:\folder\file.png arrives here as E:%5Cfolder%5Cfile.png.
+    // The tests below have to read the address the way the file system does.
+    var decoded = decodeAddress(source);
+    if (/^file:/i.test(decoded)) {
       return true;
     }
-    if (/^[A-Za-z]:[\\/]/.test(source) || /^\\\\/.test(source)) {
+    if (/^[A-Za-z]:[\\/]/.test(decoded) || /^\\\\/.test(decoded)) {
       return true;
     }
     // Any other scheme names something this program cannot read.
-    return !/^[a-z][a-z0-9+.-]*:/i.test(source);
+    return !/^[a-z][a-z0-9+.-]*:/i.test(decoded);
   }
 
   // The address in the Markdown, resolved against the document's own folder.
   // '' means there is nothing to read: the document is unsaved, or the name is
   // relative to a root that means nothing on Windows.
-  function resolveLocalImagePath(source) {
+  function resolveLocalPath(source) {
     var address = String(source || '').replace(/[?#].*$/, '');
     if (!address) {
       return '';
@@ -855,6 +1088,39 @@
     return shareRoot ? '\\\\' + path : path;
   }
 
+  // An <img> can offer several files, one per screen density.  Each address is
+  // a file like the src, so each is resolved against the document and pointed
+  // at the host, keeping whatever follows the address.
+  function applyLocalSrcset(image) {
+    var original = image.getAttribute('data-local-srcset');
+    if (!original) {
+      original = image.getAttribute('srcset');
+      if (!original) {
+        return;
+      }
+      image.setAttribute('data-local-srcset', original);
+    }
+    var candidates = original.split(',');
+    var rewritten = [];
+    for (var index = 0; index < candidates.length; ++index) {
+      var candidate = candidates[index].trim();
+      if (!candidate) {
+        continue;
+      }
+      var split = candidate.search(/\s/);
+      var address = split === -1 ? candidate : candidate.slice(0, split);
+      var descriptor = split === -1 ? '' : candidate.slice(split);
+      if (isLocalImageSource(address)) {
+        var path = resolveLocalPath(address);
+        if (path) {
+          address = LOCAL_IMAGE_ORIGIN + encodeURIComponent(path);
+        }
+      }
+      rewritten.push(address + descriptor);
+    }
+    image.setAttribute('srcset', rewritten.join(', '));
+  }
+
   function applyLocalImages(container) {
     var images = container.querySelectorAll('img');
     for (var index = 0; index < images.length; ++index) {
@@ -862,11 +1128,12 @@
       if (image.getAttribute('data-remote-src')) {
         continue;  // a picture from the web, already handled
       }
+      applyLocalSrcset(image);
       var source = image.getAttribute('src') || '';
       if (!isLocalImageSource(source)) {
         continue;
       }
-      var path = resolveLocalImagePath(source);
+      var path = resolveLocalPath(source);
       var address = path ? LOCAL_IMAGE_ORIGIN + encodeURIComponent(path) : '';
       if (image.getAttribute('data-local-path') === path &&
           image.getAttribute('src') === address) {
@@ -966,10 +1233,18 @@
     var generation = mermaidGeneration;
 
     markdown.innerHTML = renderMarkdown(source);
+    // The old marks went with the markup they were wrapped around.
+    previewSelectionHits.length = 0;
+    convertAlerts(markdown);
     highlightCodeBlocks(markdown);
     renderMermaidBlocks(markdown, generation);
+    applyPictureSources(markdown);
     applyRemoteImages(markdown);
     applyLocalImages(markdown);
+    addCodeCopyButtons(markdown);
+    // A theme change or a reload redraws the page under a selection that is
+    // still in the editor, so the mark is painted again on the fresh layout.
+    paintPreviewSelection();
 
     var elapsed = performance.now() - started;
     if (state.heavy) {
@@ -1711,6 +1986,30 @@
       syncFromPreview();
       rememberPlace(previewViewport);
     }
+  }
+
+  // Any other link in the document is followed outside the window: the page is
+  // the program, so letting the embedded browser navigate would replace it with
+  // a web page, or with a 404 from the assets the program serves itself.  An
+  // address with a scheme goes to the reader's own browser, and a name relative
+  // to the document is resolved to a file, which the host opens in a tab when it
+  // is a document and in whatever program owns it otherwise.
+  function followLink(href) {
+    var address = String(href || '').trim();
+    if (!address || /^(?:javascript|vbscript|data):/i.test(address)) {
+      return;  // never a link this program will act on
+    }
+    // A drive letter looks like a scheme ("E:"), so it is told apart first.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[A-Za-z]:[\\/]/.test(address)) {
+      postToHost({ type: 'openLink', url: address });
+      return;
+    }
+    var path = resolveLocalPath(address);
+    if (!path) {
+      showToast('Save the document to follow a relative link', true);
+      return;
+    }
+    postToHost({ type: 'openLink', url: path });
   }
 
   function initJumpButtons() {
@@ -2646,18 +2945,55 @@ function collapseTabs(keep) {
     replaceEditorRange(start, end, '[' + body + '](url)', from, from + 3);
   }
 
+  // An address that could name a picture: no spaces, and either a path or a
+  // URL rather than words.  Selected text that looks like one becomes the
+  // source instead of the alt text.
+  function looksLikeImageAddress(text) {
+    if (!text || /\s/.test(text)) {
+      return false;
+    }
+    if (/^(?:[A-Za-z]:[\\/]|\\\\|https?:\/\/|\.{0,2}[\\/])/.test(text)) {
+      return true;
+    }
+    return /\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(text);
+  }
+
+  // Quotes and angle brackets would end the attribute they sit in.
+  function escapeAttribute(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // A picture is inserted as its own centred block with a width, because that
+  // is what a README wants and what a bare `![alt](path)` cannot say: Markdown
+  // has no syntax for a width or an alignment.  An existing `![alt](path)` is
+  // turned into that block rather than thrown away, and the address is left
+  // selected so it can be typed over or pasted in.
   function formatImage() {
     var start = editor.selectionStart;
     var end = editor.selectionEnd;
-    var selected = editor.value.slice(start, end);
-    var existing = /^!\[([\s\S]*)\]\(([^)]*)\)$/.exec(selected);
-    if (existing) {
-      replaceEditorRange(start, end, existing[1], start, start + existing[1].length);
-      return;
+    var selected = editor.value.slice(start, end).trim();
+    var alt = 'alt text';
+    var source = 'path';
+    var markdown = /^!\[([\s\S]*?)\]\(\s*([^)\s]*)\s*\)$/.exec(selected);
+    if (markdown) {
+      alt = markdown[1];
+      source = markdown[2] || 'path';
+    } else if (selected) {
+      if (looksLikeImageAddress(selected)) {
+        source = selected;
+      } else {
+        alt = selected;
+      }
     }
-    var alt = selected || 'alt text';
-    var from = start + 2 + alt.length + 2;
-    replaceEditorRange(start, end, '![' + alt + '](path)', from, from + 4);
+    var text = '<p align="center">\n' +
+               '  <img src="' + escapeAttribute(source) + '" alt="' + escapeAttribute(alt) +
+               '" width="500">\n' +
+               '</p>';
+    insertBlock(text, source === 'path' ? 'path' : source);
   }
 
   // A footnote reference and its definition, added in one edit so the whole
@@ -2684,6 +3020,17 @@ function collapseTabs(keep) {
     replaceEditorRange(0, value.length, text, text.length);
   }
 
+  // The callouts the renderer draws: a block quote whose first line is the
+  // marker.  The marker is left as NOTE, and the four others are named in the
+  // button's tooltip, since a README usually wants only one of them.
+  function formatCallout() {
+    var start = editor.selectionStart;
+    var end = editor.selectionEnd;
+    var selected = editor.value.slice(start, end).trim();
+    var body = selected || 'Write the note here.';
+    insertBlock('> [!NOTE]\n> ' + body, selected ? null : body);
+  }
+
   function applyFormat(action) {
     switch (action) {
       case 'bold': formatWrap('**', '**'); break;
@@ -2696,6 +3043,7 @@ function collapseTabs(keep) {
       case 'heading2': formatHeading(2); break;
       case 'heading3': formatHeading(3); break;
       case 'quote': formatQuote(); break;
+      case 'callout': formatCallout(); break;
       case 'bullet': formatList('bullet'); break;
       case 'number': formatList('number'); break;
       case 'task': formatList('task'); break;
@@ -3112,6 +3460,1004 @@ function collapseTabs(keep) {
     programmatic.preview = previewViewport.scrollTop;
   }
 
+  /* --- the editor's selection in the preview ------------------------------ */
+
+  // A selection made in the editor is painted where the same words sit in the
+  // rendered document, so a phrase can be found in the preview without leaving
+  // the source.  The rendered text is not the source text - markers, link
+  // targets and tags are gone, and a paragraph's line breaks are spaces - so
+  // both sides are reduced to their words and matched word for word.
+  //
+  // The same words can occur many times, and the selection knows the source
+  // line it starts on: the candidate nearest that line wins, which is what
+  // keeps a common word from being marked at the top of the document.
+
+  var SELECTION_MATCH_CHARS = 1200;   // a longer selection is not a locator
+  var SELECTION_MATCH_WORDS = 150;
+  var SELECTION_MATCH_RUNS = 400;     // candidates looked at before giving up
+  var SELECTION_EDGE_PUNCTUATION =
+    '.,;:!?\'"`\u201c\u201d\u2018\u2019\u00ab\u00bb()[]{}<>*_~#|\\/-+=&@$%^\u2026\u2014\u2013';
+
+  var previewSelectionHits = [];
+  var previewSelectionTimer = 0;
+  var previewDragging = false;   // a drag out of the preview is not a selection
+
+  function isSelectionPunctuation(character) {
+    return SELECTION_EDGE_PUNCTUATION.indexOf(character) !== -1;
+  }
+
+  // A character a word can be made of, used to tell whether a selection begins
+  // or ends in the middle of one.
+  function isSelectionWordCharacter(character) {
+    return Boolean(character) && !/\s/.test(character) && !isSelectionPunctuation(character);
+  }
+
+  // Cuts a run of non-space text down to the word inside it: "**bold**" and
+  // "(aside)" both lose what surrounds the word, while "snake_case" keeps the
+  // underscore it carries in the middle.  The offsets come back too, because the
+  // reverse direction has to turn a matched word into a place in the file.
+  function wordWithin(piece) {
+    var from = 0;
+    var to = piece.length;
+    while (from < to && isSelectionPunctuation(piece.charAt(from))) {
+      ++from;
+    }
+    while (to > from && isSelectionPunctuation(piece.charAt(to - 1))) {
+      --to;
+    }
+    return to > from ? { from: from, to: to, text: piece.slice(from, to) } : null;
+  }
+
+  function trimSelectionWord(piece) {
+    var word = wordWithin(piece);
+    return word ? word.text : '';
+  }
+
+  // The whole word an offset sits in or next to, so a selection that begins in
+  // the middle of one can still be counted as that word and not its tail.
+  function wordAround(text, offset) {
+    var from = offset;
+    var to = offset;
+    while (from > 0 && !/\s/.test(text.charAt(from - 1))) {
+      --from;
+    }
+    while (to < text.length && !/\s/.test(text.charAt(to))) {
+      ++to;
+    }
+    return trimSelectionWord(text.slice(from, to));
+  }
+
+  // The words a selection covers, taken from the file's own word model so that
+  // markup never becomes text: a selection that includes a link's brackets, an
+  // image, or a tag in a code span reads the same as the page.  A selection that
+  // starts or stops inside a word keeps only the part it covers, and says so,
+  // so the preview is marked from the same place rather than from the start of
+  // the word holding it.
+  function selectionQuery(source, start, end) {
+    var words = sourceWordModel(source);
+    var query = { words: [], openStart: false, openEnd: false, inside: null };
+    for (var index = 0; index < words.length; ++index) {
+      var word = words[index];
+      if (word.end <= start || word.start >= end) {
+        continue;
+      }
+      var part = '';
+      for (var place = 0; place < word.text.length; ++place) {
+        var at = word.places[place];
+        if (at >= start && at < end) {
+          part += word.text.charAt(place);
+        }
+      }
+      if (!part) {
+        continue;
+      }
+      if (!query.words.length) {
+        if (word.start < start) {
+          query.openStart = true;
+        }
+        query.inside = word.lower;  // the word the selection sits in, if inside
+      }
+      query.words.push(part);
+      if (word.end > end) {
+        query.openEnd = true;
+      }
+    }
+    return query;
+  }
+
+  // The word model of a whole document, kept until the document changes: a drag
+  // asks for it at every step, and reading the file again each time would be
+  // work with the same answer.
+  var sourceWordCache = { text: null, words: null };
+
+  function sourceWordModel(source) {
+    if (sourceWordCache.text !== source) {
+      sourceWordCache = { text: source, words: sourceWords(blankBlockMarkup(source)) };
+    }
+    return sourceWordCache.words;
+  }
+
+  // Walks the text the preview actually shows, in reading order.  A node that
+  // belongs to a drawn subtree - Mermaid, KaTeX, an SVG - is left out, since
+  // there is no prose in it to mark.  `includeBlank` keeps the whitespace-only
+  // nodes, which a painted range needs so the mark has no gaps in it.
+  function walkPreviewText(visit, includeBlank) {
+    var walker = document.createTreeWalker(markdown, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (!node.nodeValue || (!includeBlank && !/\S/.test(node.nodeValue))) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return skipPreviewFindNode(node.parentNode) ? NodeFilter.FILTER_REJECT
+                                                    : NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var node;
+    while ((node = walker.nextNode())) {
+      visit(node);
+    }
+  }
+
+  // The element that renders a text node as one block of prose.  Words are
+  // read per block: a highlighting span or a bold run inside a paragraph does
+  // not start a new word, and the trailing space of one block is not the
+  // leading space of the next.
+  var PREVIEW_BLOCKS = /^(P|H1|H2|H3|H4|H5|H6|LI|TD|TH|PRE|BLOCKQUOTE|DIV|DT|DD|TABLE|THEAD|TBODY|TR|CAPTION|UL|OL|DL|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|MAIN|NAV|DETAILS|SUMMARY)$/;
+
+  function previewBlockElement(node) {
+    for (var element = node.parentNode; element && element !== markdown;
+         element = element.parentNode) {
+      if (PREVIEW_BLOCKS.test(element.nodeName)) {
+        return element;
+      }
+    }
+    return markdown;
+  }
+
+  // Each block's text in one string, with the table that turns an offset in it
+  // back into the node it came from.  Without this a word cut in two by a
+  // highlighting span - "tools\fetch-vendor.ps1" - would count as two words on
+  // the page and one in the file, and every count after it would be off.
+  function previewRuns() {
+    var runs = [];
+    var current = null;
+    var prior = null;
+    walkPreviewText(function (node) {
+      var block = previewBlockElement(node);
+      if (!current || current.block !== block) {
+        current = { block: block, text: '', segments: [] };
+        runs.push(current);
+        prior = null;
+      } else if (prior && !/[\s]$/.test(prior.nodeValue) && !/^[\s]/.test(node.nodeValue) &&
+                 previewBrokenBetween(prior, node)) {
+        // A break or a drawn picture between two halves of a line is where the
+        // reader sees two words, even with no space written anywhere.
+        current.text += ' ';
+      }
+      current.segments.push({ node: node, from: current.text.length,
+                              length: node.nodeValue.length });
+      current.text += node.nodeValue;
+      prior = node;
+    }, true);
+    return runs;
+  }
+
+  // Whether something that draws nothing but ends a word - a line break, a
+  // picture, a rule - sits between two text nodes of the same block.
+  var PREVIEW_BREAKS = 'br,img,hr,input,video,audio,iframe,object,embed,canvas';
+  function previewBrokenBetween(previous, node) {
+    try {
+      var range = document.createRange();
+      range.setStartAfter(previous);
+      range.setEndBefore(node);
+      return range.cloneContents().querySelector(PREVIEW_BREAKS) !== null;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // The node and offset an offset of the block's text sits at.
+  function previewPlace(run, offset) {
+    for (var index = 0; index < run.segments.length; ++index) {
+      var segment = run.segments[index];
+      if (offset < segment.from + segment.length) {
+        return { node: segment.node, offset: offset - segment.from };
+      }
+    }
+    var last = run.segments[run.segments.length - 1];
+    return { node: last.node, offset: last.length };
+  }
+
+  // Every word of the rendered document with the places it starts and ends, so
+  // a match can be wrapped where it really is.
+  function previewWords() {
+    var words = [];
+    var runs = previewRuns();
+    for (var index = 0; index < runs.length; ++index) {
+      var run = runs[index];
+      var pattern = /[^\s]+/g;
+      var piece;
+      while ((piece = pattern.exec(run.text)) !== null) {
+        var word = wordWithin(piece[0]);
+        if (!word) {
+          continue;
+        }
+        var start = previewPlace(run, piece.index + word.from);
+        var end = previewPlace(run, piece.index + word.to);
+        words.push({
+          text: word.text,
+          lower: word.text.toLowerCase(),
+          node: start.node,
+          start: start.offset,
+          endNode: end.node,
+          endOffset: end.offset,
+          length: word.text.length
+        });
+      }
+    }
+    return words;
+  }
+
+  // Where a query word sits inside a preview word, or -1.  A selection that
+  // starts in the middle of a word has to match the end of the first preview
+  // word, and one that ends in the middle has to match the beginning of the
+  // last; every word in between is matched whole.
+  function selectionWordOffset(word, query, first, last, openStart, openEnd, ignoreCase) {
+    var text = ignoreCase ? word.lower : word.text;
+    if (first && openStart && last && openEnd) {
+      return text.indexOf(query);
+    }
+    if (first && openStart) {
+      return text.slice(text.length - query.length) === query ? text.length - query.length : -1;
+    }
+    if (last && openEnd) {
+      return text.slice(0, query.length) === query ? 0 : -1;
+    }
+    return text === query ? 0 : -1;
+  }
+
+  // Runs of preview words that spell the query.  Exact case is tried first, so
+  // a name written with capitals is not moved to a lower-case lookalike.
+  // `inside` is the whole word a selection that starts and stops inside one
+  // sits in: without it "ettin" out of "settings.ini" would also match
+  // "settings", and the first of those in the file would be picked.
+  function selectionRuns(words, query, ignoreCase, openStart, openEnd, inside) {
+    var runs = [];
+    if (!query.length) {
+      return runs;
+    }
+    var last = words.length - query.length;
+    for (var index = 0; index <= last; ++index) {
+      if (openStart && openEnd && inside && query.length === 1 &&
+          words[index].lower !== inside) {
+        continue;  // the whole word is known, so a lookalike fragment is not it
+      }
+      var from = -1;
+      var to = -1;
+      var matched = true;
+      for (var offset = 0; offset < query.length; ++offset) {
+        var first = offset === 0;
+        var final = offset === query.length - 1;
+        var position = selectionWordOffset(words[index + offset], query[offset],
+                                           first, final, openStart, openEnd, ignoreCase);
+        if (position < 0) {
+          matched = false;
+          break;
+        }
+        if (first) {
+          from = position;
+        }
+        if (final) {
+          to = position + query[offset].length;
+        }
+      }
+      if (matched) {
+        runs.push({ start: index, end: index + query.length, from: from, to: to });
+        if (runs.length >= SELECTION_MATCH_RUNS) {
+          break;
+        }
+      }
+    }
+    return runs;
+  }
+
+  // Where a word sits in the preview, measured the same way the anchor table
+  // measures a block, so the two can be compared.
+  function previewWordTop(word) {
+    try {
+      var range = document.createRange();
+      range.setStart(word.node, word.start);
+      range.setEnd(word.node, word.start);
+      var rect = range.getBoundingClientRect();
+      return rect.top - previewViewport.getBoundingClientRect().top + previewViewport.scrollTop;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // The top level block that owns a source line, as the anchor table pairs
+  // them.  A line above the first block takes the first one.
+  function previewBlockForLine(line) {
+    if (!anchors.length) {
+      return null;
+    }
+    var low = 0;
+    var high = anchors.length - 1;
+    var index = 0;
+    while (low <= high) {
+      var middle = (low + high) >> 1;
+      if (anchors[middle].line <= line) {
+        index = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return markdown.children[index] || null;
+  }
+
+  // A run is not always identifiable from its position: without a block table
+  // the only thing left is how many look-alikes came before it.  Counting the
+  // same prefix on the other side and taking the run with the same count keeps
+  // the two panes on the same occurrence.
+  function ordinalRun(runs, wanted, words, prefix) {
+    var best = runs[0];
+    var nearest = Infinity;
+    for (var index = 0; index < runs.length; ++index) {
+      var distance = Math.abs(occurrencesBefore(words, runs[index].start, prefix) - wanted);
+      if (distance < nearest) {
+        nearest = distance;
+        best = runs[index];
+        if (!distance) {
+          break;
+        }
+      }
+    }
+    return best;
+  }
+
+  function nearestSelectionRun(runs, words, line, source, offset, prefix) {
+    if (runs.length < 2) {
+      return runs[0];
+    }
+    ensureAnchors();
+    // The block the selection starts in is the strongest hint there is: the
+    // same word elsewhere in the document is not a candidate at all.
+    var block = previewBlockForLine(line);
+    if (block) {
+      for (var index = 0; index < runs.length; ++index) {
+        if (block.contains(words[runs[index].start].node)) {
+          return runs[index];
+        }
+      }
+    }
+    var anchor = previewTopForLine(line);
+    if (anchor === null) {
+      // No block table either, so the source's own count decides.
+      return ordinalRun(runs, sourceMatchesBefore(source, offset, prefix), words, prefix);
+    }
+    var best = runs[0];
+    var distance = Infinity;
+    for (var candidate = 0; candidate < runs.length; ++candidate) {
+      var top = previewWordTop(words[runs[candidate].start]);
+      if (top === null) {
+        continue;
+      }
+      var here = Math.abs(top - anchor);
+      if (here < distance) {
+        distance = here;
+        best = runs[candidate];
+      }
+    }
+    return best;
+  }
+
+  // Wraps [from, to) of one text node.  Splitting leaves the node before the
+  // range untouched, so a node already handled is never disturbed by a later
+  // split in the same node.
+  function wrapSelectionNode(node, from, to) {
+    var text = node.nodeValue || '';
+    from = clamp(from, 0, text.length);
+    to = clamp(to, from, text.length);
+    if (to <= from || !node.parentNode) {
+      return;
+    }
+    var middle = node.splitText(from);
+    if (to - from < middle.nodeValue.length) {
+      middle.splitText(to - from);
+    }
+    var mark = document.createElement('mark');
+    mark.className = 'selection-hit';
+    middle.parentNode.replaceChild(mark, middle);
+    mark.appendChild(middle);
+    previewSelectionHits.push(mark);
+  }
+
+  // Paints a run of preview words.  The words of one phrase can be split over
+  // several nodes by inline markup, and a word itself can be cut in two by a
+  // highlighting span, so the nodes between the first and the last are taken
+  // whole, with only the ends cut to the words themselves.
+  function paintSelectionRun(words, run) {
+    var first = words[run.start];
+    var last = words[run.end - 1];
+    var nodes = [];
+    walkPreviewText(function (node) {
+      nodes.push(node);
+    }, true);
+    var fromIndex = nodes.indexOf(first.node);
+    var toIndex = nodes.indexOf(last.endNode);
+    if (fromIndex < 0 || toIndex < 0) {
+      return;
+    }
+    for (var index = fromIndex; index <= toIndex; ++index) {
+      var text = nodes[index].nodeValue || '';
+      var start = 0;
+      var end = text.length;
+      if (index === fromIndex) {
+        start = Math.min(first.start + run.from, text.length);
+      }
+      if (index === toIndex) {
+        // The tail of the last word may begin before the node it ends in.
+        end = last.endOffset - (last.length - run.to);
+        end = Math.max(start, Math.min(end, text.length));
+      }
+      wrapSelectionNode(nodes[index], start, end);
+    }
+  }
+
+  function clearPreviewSelectionHits() {
+    if (!previewSelectionHits.length) {
+      return;
+    }
+    for (var index = 0; index < previewSelectionHits.length; ++index) {
+      var mark = previewSelectionHits[index];
+      var parent = mark.parentNode;
+      if (!parent) {
+        continue;
+      }
+      while (mark.firstChild) {
+        parent.insertBefore(mark.firstChild, mark);
+      }
+      parent.removeChild(mark);
+    }
+    previewSelectionHits.length = 0;
+    if (markdown.normalize) {
+      // Put the split text nodes back together, so a dragged selection does not
+      // leave the document cut into fragments.
+      markdown.normalize();
+    }
+  }
+
+  function paintPreviewSelection() {
+    clearPreviewSelectionHits();
+    if (state.settings.viewMode === 'editor' || state.heavy || find.open) {
+      return;
+    }
+    var source = editor.value;
+    var start = editor.selectionStart || 0;
+    var end = editor.selectionEnd || 0;
+    if (end <= start || end - start > SELECTION_MATCH_CHARS) {
+      return;
+    }
+    var picked = selectionQuery(source, start, end);
+    var query = picked.words;
+    if (!query.length || query.length > SELECTION_MATCH_WORDS) {
+      return;
+    }
+    var openStart = picked.openStart;
+    var openEnd = picked.openEnd;
+    var words = previewWords();
+    var runs = selectionRuns(words, query, false, openStart, openEnd,
+                             picked.inside);
+    if (!runs.length) {
+      var lowered = [];
+      for (var index = 0; index < query.length; ++index) {
+        lowered.push(query[index].toLowerCase());
+      }
+      runs = selectionRuns(words, lowered, true, openStart, openEnd,
+                           picked.inside);
+    }
+    if (!runs.length) {
+      return;
+    }
+    var prefix = (wordAround(source, start) || query[0]).toLowerCase();
+    paintSelectionRun(words, nearestSelectionRun(runs, words, lineFromOffset(start),
+                                                source, start, prefix));
+  }
+
+  // The textarea reports every step of a drag as a selection change; painting
+  // each one would rebuild the word table dozens of times a second.
+  function schedulePreviewSelection() {
+    if (previewSelectionTimer) {
+      return;
+    }
+    previewSelectionTimer = setTimeout(function () {
+      previewSelectionTimer = 0;
+      paintPreviewSelection();
+    }, 60);
+  }
+
+  /* --- the preview's selection in the editor ------------------------------- */
+
+  // The other direction: a phrase picked out in the rendered document is
+  // selected in the source, which is how the program is actually read - look at
+  // the preview, spot something to change, select it, and be in the editor.
+  //
+  // Looking a rendered phrase up in the source has the same trouble in reverse:
+  // the markup is not shown, and a paragraph's line breaks became spaces.  The
+  // source lines the block was rendered from are blanked in place - each
+  // construct replaced by spaces of its own length - so the words that survive
+  // still sit at the offsets they have in the file, and the same word matching
+  // as the other direction finds the run to select.
+
+  // A blank run of the same length, so a construct can be taken out without
+  // moving anything that follows it.
+  function blankRun(length) {
+    return length > 0 ? new Array(length + 1).join(' ') : '';
+  }
+
+  // Inline code is shown exactly as written, so a tag inside one is text and
+  // not markup: `./<file>.deb` reads as "file>.deb" on the page.  The spans are
+  // filled with a character no rule below touches, then put back.  A fence is
+  // not an inline span, so the fence lines go first and only a single line of
+  // one or two backticks counts here.
+  var INLINE_CODE = /(`{1,2})([^`\n]*?)\1/g;
+
+  // Tags that sit inside a line of prose.  The page joins the words on either
+  // side of one - `<b>Fast</b>er` reads as "Faster" - while a block tag or a
+  // break is where it starts a new word.
+  var INLINE_TAGS = /^(a|abbr|b|bdi|bdo|cite|code|data|del|dfn|em|font|i|ins|kbd|mark|q|s|samp|small|span|strong|sub|sup|time|u|var|wbr)$/i;
+
+  // Where a fenced block starts and stops, by line, so its content can be kept
+  // as written and its fence lines taken out.  An unclosed fence runs to the
+  // end, which is what a renderer does with it.
+  function fencedBlocks(text) {
+    var blocks = [];
+    var lines = text.split('\n');
+    var offset = 0;
+    var open = null;
+    for (var index = 0; index < lines.length; ++index) {
+      var line = lines[index];
+      var match = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+      if (open) {
+        if (match && match[1].charAt(0) === open.character &&
+            match[1].length >= open.length) {
+          blocks.push({ content: { from: open.from, to: offset },
+                        fences: [{ from: open.lineStart, to: open.lineStart + open.lengthOfLine },
+                                 { from: offset, to: offset + line.length }] });
+          open = null;
+        }
+      } else if (match) {
+        open = { character: match[1].charAt(0), length: match[1].length,
+                 from: offset + line.length + 1, lineStart: offset,
+                 lengthOfLine: line.length };
+      }
+      offset += line.length + 1;
+    }
+    if (open) {
+      blocks.push({ content: { from: open.from, to: text.length },
+                    fences: [{ from: open.lineStart, to: open.lineStart + open.lengthOfLine }] });
+    }
+    return blocks;
+  }
+
+  // A source slice as the page reads it: what is drawn but not written - an
+  // image, a tag, a fence - is blanked away, and a link keeps its label exactly
+  // where the label was.
+  function blankBlockMarkup(text) {
+    var spans = [];
+    // A code block, like inline code, is shown exactly as written, so a tag in
+    // it is text.  The fences go, the content stays.
+    var blocks = fencedBlocks(text);
+    var characters = text.split('');
+    for (var block = 0; block < blocks.length; ++block) {
+      var fences = blocks[block].fences;
+      for (var fence = 0; fence < fences.length; ++fence) {
+        for (var place = fences[fence].from; place < fences[fence].to; ++place) {
+          characters[place] = ' ';
+        }
+      }
+      var content = blocks[block].content;
+      spans.push({ at: content.from, ticks: 0,
+                   text: text.slice(content.from, content.to) });
+      for (var spot = content.from; spot < content.to; ++spot) {
+        characters[spot] = '\uE000';
+      }
+    }
+    var guarded = characters.join('')
+      .replace(INLINE_CODE, function (whole, ticks, inner, offset) {
+        spans.push({ at: offset + ticks.length, ticks: ticks.length, text: inner });
+        return blankRun(whole.length).replace(/ /g, '\uE000');
+      });
+    var blanked = guarded
+      .replace(/<!--[\s\S]*?-->/g, function (whole) {
+        return blankRun(whole.length);  // a comment is not shown at all
+      })
+      .replace(/<((?:https?|mailto|ftp):[^>\s]*)>/gi, function (whole, url) {
+        return ' ' + url + ' ';  // an autolink shows the address itself
+      })
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, function (whole) {
+        return blankRun(whole.length);
+      })
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, function (whole, label) {
+        return blankRun(1) + label + blankRun(whole.length - label.length - 1);
+      })
+      .replace(/\[([^\]]*)\]\[[^\]]*\]/g, function (whole, label) {
+        return blankRun(1) + label + blankRun(whole.length - label.length - 1);
+      })
+      .replace(/<\/?([A-Za-z][A-Za-z0-9-]*)[^>]*>/g, function (whole, name) {
+        if (INLINE_TAGS.test(name)) {
+          // Taken out without a gap: the words it sat between are one word.
+          return blankRun(whole.length).replace(/ /g, '\uE000');
+        }
+        return blankRun(whole.length);  // a real tag, not "p < 0.001"
+      })
+      .replace(/^[ \t]{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])[ \t]+/gm, function (whole) {
+        return blankRun(whole.length);
+      });
+    if (!spans.length) {
+      return blanked;
+    }
+    var characters = blanked.split('');
+    for (var index = 0; index < spans.length; ++index) {
+      var span = spans[index];
+      // The whole span goes back to spaces - the backticks were never shown -
+      // and the code itself goes back exactly where it was.  The ticks stay
+      // marked rather than blanked, so `Ctrl`+`wheel` does not become two words
+      // on one side and one on the other; sourceWords drops the marks.
+      var from = span.at - span.ticks;
+      var to = from + span.ticks + span.text.length + span.ticks;
+      for (var place = from; place < to; ++place) {
+        characters[place] = ' ';
+      }
+      for (var offset = 0; offset < span.text.length; ++offset) {
+        characters[span.at + offset] = span.text.charAt(offset);
+      }
+      for (var mark = 0; mark < span.ticks; ++mark) {
+        characters[from + mark] = '\uE000';
+        characters[span.at + span.text.length + mark] = '\uE000';
+      }
+    }
+    return characters.join('');
+  }
+
+  // Every word of a blanked slice, with the offsets that put it back.  The one
+  // backslash the page does not show is the one that carries a pipe through a
+  // table cell: `a\|b` in a row reads as "a|b".  Anywhere else an escape is
+  // literal, code spans especially, so it is left alone.
+  function sourceWords(text) {
+    var words = [];
+    var pattern = /[^\s]+/g;
+    var piece;
+    var lineStart = 0;
+    var lineEnd = text.indexOf('\n');
+    if (lineEnd < 0) {
+      lineEnd = text.length;
+    }
+    while ((piece = pattern.exec(text)) !== null) {
+      // The marks stand where a delimiter was taken out: they keep the offsets
+      // true without breaking the word they sat in.
+      var raw = piece[0];
+      var places = [];
+      var clean = '';
+      for (var index = 0; index < raw.length; ++index) {
+        if (raw.charAt(index) === '\uE000') {
+          continue;
+        }
+        clean += raw.charAt(index);
+        places.push(piece.index + index);
+      }
+      var word = wordWithin(clean);
+      if (!word) {
+        continue;
+      }
+      while (piece.index > lineEnd) {
+        lineStart = lineEnd + 1;
+        lineEnd = text.indexOf('\n', lineStart);
+        if (lineEnd < 0) {
+          lineEnd = text.length;
+        }
+      }
+      // A pipe carried through a table cell loses its backslash, so the shown
+      // text is built character by character with the place each one came from.
+      var isRow = /^[ \t]*\|/.test(text.slice(lineStart, lineEnd));
+      var shown = '';
+      var spots = [];
+      for (var offset = word.from; offset < word.to; ++offset) {
+        var character = clean.charAt(offset);
+        if (isRow && character === '\\' && clean.charAt(offset + 1) === '|' &&
+            offset + 1 < word.to) {
+          shown += '|';
+          spots.push(places[offset]);
+          ++offset;
+          continue;
+        }
+        shown += character;
+        spots.push(places[offset]);
+      }
+      // A delimiter taken out of the source has to come back with the word it
+      // wrapped, or the selection would have a stray tick in the middle of it:
+      // "Ctrl+wheel" is written `Ctrl`+wheel and "settings.ini" is written
+      // `settings.ini`.  The exact extent stays as it is, since it is what says
+      // whether a selection in the editor was cut inside the word; the wider
+      // one is what the preview's selection turns into.
+      var start = places[word.from];
+      var end = places[word.to - 1] + 1;
+      var wrapStart = start;
+      var wrapEnd = end;
+      while (wrapStart > piece.index && text.charAt(wrapStart - 1) === '\uE000') {
+        --wrapStart;
+      }
+      while (wrapEnd < piece.index + raw.length && text.charAt(wrapEnd) === '\uE000') {
+        ++wrapEnd;
+      }
+      words.push({
+        text: shown,
+        lower: shown.toLowerCase(),
+        start: start,
+        end: end,
+        wrapStart: wrapStart,
+        wrapEnd: wrapEnd,
+        places: spots
+      });
+    }
+    return words;
+  }
+
+  // The words a rendered selection is made of.  Nothing in it is markup, so the
+  // only question is where each word begins and ends.
+  function selectedWords(text) {
+    var pieces = String(text || '').split(/\s+/);
+    var words = [];
+    for (var index = 0; index < pieces.length; ++index) {
+      var word = wordWithin(pieces[index]);
+      if (word) {
+        words.push(word.text);
+      }
+    }
+    return words;
+  }
+
+  // The offset every line starts at, so a line number can be turned back into a
+  // place in the file.
+  function lineStarts(text) {
+    var starts = [0];
+    for (var index = 0; index < text.length; ++index) {
+      if (text.charCodeAt(index) === 10) {
+        starts.push(index + 1);
+      }
+    }
+    return starts;
+  }
+
+  // The top level block a node belongs to - the unit the anchor table pairs
+  // with a source line.
+  function previewBlockOf(node) {
+    var element = node && node.nodeType === 1 ? node : (node ? node.parentNode : null);
+    while (element && element.parentNode !== markdown) {
+      element = element.parentNode;
+    }
+    return element && element.parentNode === markdown ? element : null;
+  }
+
+  // The source lines those blocks came from.  Without a usable anchor table the
+  // whole file is searched, and `exact` says so: the caller then has to tell one
+  // occurrence from another by counting, since the block cannot say where it is.
+  function linesForPreviewBlocks(first, last) {
+    ensureAnchors();
+    var children = markdown.children;
+    var startIndex = -1;
+    var endIndex = -1;
+    for (var index = 0; index < children.length; ++index) {
+      if (children[index] === first) {
+        startIndex = index;
+      }
+      if (children[index] === last) {
+        endIndex = index;
+      }
+    }
+    var total = lineStarts(editor.value).length - 1;
+    if (startIndex < 0 || endIndex < 0 || !anchors.length) {
+      return { from: 0, to: total, exact: false };
+    }
+    var from = startIndex < anchors.length ? anchors[startIndex].line : 0;
+    var to = endIndex + 1 < anchors.length ? anchors[endIndex + 1].line - 1 : total;
+    return { from: from, to: Math.max(from, to), exact: true };
+  }
+
+  // How many words before `limit` begin like `prefix`, counted the same way in
+  // both panes.  The page and the file hold the same words in the same order,
+  // so the third "of" on the page is the third "of" in the source - which is
+  // what tells two look-alikes apart when the block table cannot.
+  function occurrencesBefore(words, limit, prefix) {
+    var count = 0;
+    for (var index = 0; index < limit && index < words.length; ++index) {
+      if (words[index].lower.lastIndexOf(prefix, 0) === 0) {
+        ++count;
+      }
+    }
+    return count;
+  }
+
+  // The same count on the source side: the words before `offset` that begin
+  // like `prefix`.  The markup is blanked in place first, so a link's target
+  // does not count as a word the page shows.
+  function sourceMatchesBefore(source, offset, prefix) {
+    var words = sourceWordModel(source);
+    var count = 0;
+    for (var index = 0; index < words.length; ++index) {
+      if (words[index].end > offset) {
+        break;
+      }
+      if (words[index].lower.lastIndexOf(prefix, 0) === 0) {
+        ++count;
+      }
+    }
+    return count;
+  }
+
+  // Where the selection starts on the page, and the word it starts in.  A drag
+  // can begin in the middle of a word - "ownload" out of "Download" - and then
+  // the query's first word is only a tail, which never tells two look-alikes
+  // apart.  The whole word is the thing to count.
+  function previewSelectionAnchor(range) {
+    var spoken = previewWords();
+    var container = range.startContainer;
+    var offset = range.startOffset;
+    // A drag that began in the middle of a word begins at a point the word
+    // starts before, so the word containing it is the one to count - not the
+    // next one, which is what comparing word starts finds.
+    if (container && container.nodeType === 3) {
+      for (var index = 0; index < spoken.length; ++index) {
+        var word = spoken[index];
+        var length = container.nodeValue ? container.nodeValue.length : 0;
+        if (word.node === container && offset >= word.start &&
+            offset < Math.min(length, word.start + word.text.length)) {
+          return { words: spoken, index: index, word: word.lower };
+        }
+      }
+    }
+    for (var place = 0; place < spoken.length; ++place) {
+      if (range.comparePoint(spoken[place].node, spoken[place].start) >= 0) {
+        return { words: spoken, index: place, word: spoken[place].lower };
+      }
+    }
+    return null;
+  }
+
+  // Selects the source the preview selection came from, and repaints the mark
+  // from that selection so both panes say the same thing.
+  function reflectPreviewSelection() {
+    if (state.settings.viewMode === 'editor') {
+      return;
+    }
+    var selection = window.getSelection();
+    if (!selection || !selection.rangeCount) {
+      return;
+    }
+    var range = selection.getRangeAt(0);
+    if (!markdown.contains(range.commonAncestorContainer)) {
+      return;  // the selection is the editor's or the find box's, not ours
+    }
+    var text = selection.toString();
+    if (!/\S/.test(text)) {
+      // A click, not a selection.  The page has nothing picked in it any more,
+      // so the mark from the last selection goes and the source it pointed at
+      // is let go too - otherwise a click would leave the highlight sitting on
+      // the page until another selection replaced it.
+      clearPreviewSelectionHits();
+      if (editor.selectionStart !== editor.selectionEnd) {
+        editor.setSelectionRange(editor.selectionStart, editor.selectionStart);
+      }
+      return;
+    }
+    var first = previewBlockOf(range.startContainer);
+    var last = previewBlockOf(range.endContainer) || first;
+    if (!first) {
+      return;
+    }
+    // A drag can start and stop inside words; the words holding those edges are
+    // matched by their ends, as in the other direction.
+    var openStart = range.startContainer.nodeType === 3 && range.startOffset > 0 &&
+                    isSelectionWordCharacter(
+                      range.startContainer.nodeValue.charAt(range.startOffset - 1));
+    var openEnd = range.endContainer.nodeType === 3 && range.endOffset > 0 &&
+                  isSelectionWordCharacter(
+                    range.endContainer.nodeValue.charAt(range.endOffset - 1));
+
+    // The mark is rebuilt from the editor selection below; the old one has to go
+    // first, or a selection made here would leave the previous one painted.
+    var query = selectedWords(text);
+    if (text.length > SELECTION_MATCH_CHARS || !query.length ||
+        query.length > SELECTION_MATCH_WORDS) {
+      return;
+    }
+
+    var source = editor.value;
+    var starts = lineStarts(source);
+    var lines = linesForPreviewBlocks(first, last);
+    // Without the block's own lines the same words exist elsewhere in the file,
+    // so the count of look-alikes before the selection is what picks the right
+    // one.  It is read here, while the selection still points into live nodes.
+    // A selection inside a single word needs that whole word too, to keep the
+    // fragment from matching a shorter word elsewhere.
+    var anchor = lines.exact ? null : previewSelectionAnchor(range);
+    var wanted = anchor ? occurrencesBefore(anchor.words, anchor.index, anchor.word) : 0;
+    var prefix = anchor ? anchor.word : query[0].toLowerCase();
+
+    clearPreviewSelectionHits();
+
+    var from = lines.from < starts.length ? starts[lines.from] : source.length;
+    var to = lines.to + 1 < starts.length ? starts[lines.to + 1] : source.length;
+    var words = sourceWords(blankBlockMarkup(source.slice(from, to)));
+    if (!words.length) {
+      return;
+    }
+    var runs = selectionRuns(words, query, false, openStart, openEnd,
+                             anchor ? anchor.word : null);
+    if (!runs.length) {
+      var lowered = [];
+      for (var index = 0; index < query.length; ++index) {
+        lowered.push(query[index].toLowerCase());
+      }
+      runs = selectionRuns(words, lowered, true, openStart, openEnd,
+                           anchor ? anchor.word : null);
+    }
+    if (!runs.length) {
+      return;  // nothing in the source spells this: leave the editor alone
+    }
+
+    // Inside the block's own lines the first run is the one the reader pointed
+    // at, because the search never left the block.  Without them, the count of
+    // look-alikes before the selection is what tells two of them apart.
+    var run = lines.exact ? runs[0] : ordinalRun(runs, wanted, words, prefix);
+    // The browser finishes the release after the handlers return, and that
+    // includes putting the focus where the click landed: taking it here would be
+    // undone a moment later, leaving the source selected but unpainted.  One
+    // turn of the event loop is the first moment the editor can keep it.
+    setTimeout(function () {
+      // A word's shown text and its place in the file are not always the same
+      // length - a code span's backticks were taken out, `\|` became one
+      // character - so the ends are read from the places the word kept.
+      var head = words[run.start];
+      var tail = words[run.end - 1];
+      var headAt = run.from === 0 ? head.wrapStart : head.places[run.from];
+      var tailAt = run.to >= tail.text.length
+                 ? tail.wrapEnd
+                 : tail.places[run.to - 1] + 1;
+      focusPreviewSelectionSource(from + headAt, from + tailAt);
+    }, 0);
+  }
+
+  // Selects the source range in the editor, brings it into view without moving
+  // the preview, and repaints the mark from the editor selection so both panes
+  // say the same thing.
+  function focusPreviewSelectionSource(start, end) {
+    if (state.settings.viewMode !== 'preview') {
+      try {
+        editor.focus({ preventScroll: true });
+      } catch (error) {
+        editor.focus();
+      }
+    }
+    editor.setSelectionRange(start, end);
+    if (state.settings.viewMode !== 'preview') {
+      // The line comes into view; the preview stays where it is, since that is
+      // where the reader just made the selection.
+      computeMetrics();
+      var top = metrics.paddingTop +
+                visualFromLogicalLine(lineFromOffset(start)) * metrics.lineHeight -
+                editor.clientHeight / 2;
+      programmatic.editor = Math.round(clamp(top, 0, maxScroll(editor)));
+      editor.scrollTop = programmatic.editor;
+      programmatic.editor = editor.scrollTop;
+      renderGutter();
+    }
+    updateCursorStatus();
+    if (state.settings.viewMode === 'split') {
+      paintPreviewSelection();
+    }
+  }
+
   // Moves to a match.  focusEditor is false when the move comes from the
   // scrollbar: the find box keeps the focus, so the user can carry on typing.
   function goToMatch(index, focusEditor) {
@@ -3280,6 +4626,8 @@ function collapseTabs(keep) {
     }
     find.open = true;
     findBar.hidden = false;
+    // Find paints its own marks; a selection mark under them would only nest.
+    clearPreviewSelectionHits();
     refreshFindMatches(true);
     syncFindHighlight();
     var target = focusReplace ? replaceInput : findInput;
@@ -3299,6 +4647,9 @@ function collapseTabs(keep) {
         (document.activeElement === findInput || document.activeElement === replaceInput)) {
       editor.focus();
     }
+    // The selection that opened the search is still in the editor, so it goes
+    // back on the page now that the search marks are gone.
+    paintPreviewSelection();
   }
 
   /* ---------------------------------------------------------------------- */
@@ -3343,6 +4694,9 @@ function collapseTabs(keep) {
       break;
     case 'toast':
       showToast(String(data.text || ''), Boolean(data.error));
+      break;
+    case 'linkMissing':
+      showToast('No such file: ' + String(data.path || ''), true);
       break;
     case 'imageReady':
     case 'imageFailed':
@@ -3432,6 +4786,7 @@ function collapseTabs(keep) {
       // Marks are skipped while the preview is hidden, so paint them on the way in.
       paintPreviewFindHits();
     }
+    paintPreviewSelection();
   }
 
   function applyWrap() {
@@ -4146,10 +5501,24 @@ function collapseTabs(keep) {
     });
     editor.addEventListener('select', function () {
       updateCursorStatus();
+      schedulePreviewSelection();
     });
     document.addEventListener('selectionchange', function () {
       if (document.activeElement === editor) {
         updateCursorStatus();
+        schedulePreviewSelection();
+        return;
+      }
+      // A selection in the page that goes away takes the highlight with it, and
+      // the source it pointed at is let go.  A release does not always reach the
+      // preview: a click on its scrollbar, on the status bar, anywhere outside
+      // the document collapses the selection without a mouseup in the pane.
+      var page = window.getSelection();
+      if (previewSelectionHits.length && (!page || !/\S/.test(page.toString()))) {
+        clearPreviewSelectionHits();
+        if (editor.selectionStart !== editor.selectionEnd) {
+          editor.setSelectionRange(editor.selectionStart, editor.selectionStart);
+        }
       }
     });
 
@@ -4165,6 +5534,44 @@ function collapseTabs(keep) {
       followJumpScroll();
     });
 
+    // The reverse direction runs on release, not on selectionchange: mapping a
+    // drag would take the focus out of the preview mid-gesture and end the
+    // selection the reader is still making.
+    //
+    // An image or a link can also be dragged out of the page, and dragging is a
+    // different gesture: it must not select anything in the editor.  The flag is
+    // cleared when a gesture starts and set by the drag the gesture turns into,
+    // because dragend arrives before the mouseup that ends it.
+    previewViewport.addEventListener('mousedown', function (event) {
+      if (event.button === 0) {
+        previewDragging = false;
+      }
+    });
+    previewViewport.addEventListener('dragstart', function (event) {
+      // A drag out of the page is not a gesture this program offers, and it is
+      // the one way a release could turn into a drop: the editor holds the
+      // focus, so an image or a link dragged across the window can land in the
+      // text.  Images and links therefore do not start a drag.
+      var target = event.target;
+      if (target && target.closest && target.closest('img, a')) {
+        event.preventDefault();
+        return;
+      }
+      previewDragging = true;
+    });
+    previewViewport.addEventListener('mouseup', function (event) {
+      if (event.button !== 0) {
+        return;
+      }
+      if (previewDragging) {
+        return;
+      }
+      if (event.target.closest && event.target.closest('.code-copy')) {
+        return;  // the copy button is not a selection
+      }
+      reflectPreviewSelection();
+    });
+
     editor.addEventListener('contextmenu', showContextMenu);
     previewViewport.addEventListener('contextmenu', showContextMenu);
 
@@ -4178,11 +5585,32 @@ function collapseTabs(keep) {
         return;
       }
       var href = link.getAttribute('href') || '';
-      if (href.length < 2 || href.charAt(0) !== '#') {
-        return;  // every other link keeps being a navigation
+      if (href.charAt(0) === '#') {
+        event.preventDefault();
+        scrollPreviewToFragment(href);
+        return;
+      }
+      // Nothing in a document navigates the window: the page is the program.
+      event.preventDefault();
+      followLink(href);
+    });
+
+    // The middle button is a click too, and the browser would otherwise open a
+    // window of its own for the address.
+    markdown.addEventListener('auxclick', function (event) {
+      if (event.defaultPrevented || event.button !== 1) {
+        return;
+      }
+      var link = event.target.closest ? event.target.closest('a') : null;
+      if (!link) {
+        return;
+      }
+      var href = link.getAttribute('href') || '';
+      if (!href || href.charAt(0) === '#') {
+        return;
       }
       event.preventDefault();
-      scrollPreviewToFragment(href);
+      followLink(href);
     });
 
     document.addEventListener('mousedown', function (event) {
@@ -4595,7 +6023,10 @@ function collapseTabs(keep) {
 
   function boot() {
     if (window.marked) {
-      window.marked.use({ gfm: true, breaks: true, extensions: [footnoteExtension] });
+      // A single newline is a soft break: the two lines join in one paragraph,
+      // as they do in the dialect this reads.  A line that really wants to end
+      // carries two spaces or a backslash, or an explicit <br>.
+      window.marked.use({ gfm: true, breaks: false, extensions: [footnoteExtension] });
     }
 
     document.documentElement.dataset.theme = state.settings.dark ? 'dark' : 'light';

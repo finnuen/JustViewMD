@@ -1,5 +1,85 @@
 # Changelog
 
+## 1.17
+
+* A screenshot at the top of the README shows a selection mirrored between the
+  two panes.
+
+## 1.16
+
+* A picture a document names with a Windows path now appears: `![alt](E:\Pictures\shot.png)`
+  was left as a broken image, because the renderer percent-encodes a Markdown
+  destination and `E:\` arrived as `E:%5C`, which read as an unknown URL scheme.
+  The address is decoded before it is recognised, so backslashes, forward
+  slashes and `file:///` all work, in a Markdown image and in an `<img>` tag.
+* A link in the preview no longer opens inside the window. An address with a
+  scheme goes to the default browser, a link to another document opens it in a
+  tab, and a link to any other file opens that file in its own program; a link
+  to a file that is not there says so. Before, an absolute address loaded the
+  page in place of the program, and a relative one - a placeholder like `url` -
+  navigated to a missing page under the program's own address.
+* The image button inserts a centred picture with a width, since Markdown has no
+  syntax for either: a selected address becomes the source, a selected
+  `![alt](path)` is turned into that block, and the address is left selected.
+* A callout button, for the note, tip, important, warning and caution boxes the
+  renderer draws.
+
+## 1.15
+
+* A click lets the selection go. Anything that drops the selection in the
+  rendered page - a click in the preview, on its scrollbar, or anywhere else
+  that leaves nothing picked - clears the highlight and the range it had put in
+  the source, and clicking in the editor clears the highlight in the preview.
+  Before, the highlight stayed on the page until another selection replaced it.
+
+## 1.14
+
+* A selection in the preview is selected in the source, the other half of what
+  1.13 started: words picked in the rendered page are found in the editor and
+  the editor takes the focus, so a phrase can be changed without hunting for it
+  by eye. A drag that starts or stops inside a word is matched from that place.
+* The two panes now agree word for word on what a document says. The rendered
+  page and the source file were counted as word sequences, and every place they
+  drifted apart is fixed: a tag written inside a code span or a fenced block is
+  text and not markup, an HTML comment is not a word, `p < 0.001` is three
+  words and not the start of a tag, `\|` in a table cell is one character, a
+  word split by a syntax-highlighting span is one word, and `<b>Fast</b>er`
+  reads as "Faster". Without that, a selection could land one word off.
+* A word is selected together with the inline markup that wraps it, so the
+  selection in the editor is something that can be typed over and back in:
+  "settings.ini" on the page selects `settings.ini` in the file, and
+  "Ctrl+wheel" selects `Ctrl`+wheel.
+
+## 1.13
+
+* A selection made in the editor is painted in the preview where the same
+  words sit, in both themes. The rendered text is not the source text, so the
+  two are matched by their words: a selection that starts or ends inside a
+  word is marked from that place, and a phrase that occurs more than once is
+  marked at the line it was selected on. Selecting in the preview is
+  unaffected, and a selection too long to be a locator is left alone.
+
+## 1.12
+
+* Callouts: a blockquote that opens with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
+  `[!WARNING]` or `[!CAUTION]` is drawn as a titled box with its own icon and
+  colour, in both themes. A title written after the marker replaces the default
+  one.
+* A `<picture>` that offers a dark and a light file now follows the theme the
+  window is using. The old code left the choice to the embedded browser, which
+  went by the system scheme, and it never resolved the file named in `srcset`,
+  so pictures such as a README's screenshots were left broken in dark mode.
+  A `srcset` on a plain `<img>` is resolved too.
+* Every fenced code block has a copy button in its corner, shown while the
+  pointer is over the block; it turns into a tick after the copy.
+* The preview is laid out as a README normally is: 16px text on a 1.5 line
+  height in a 1012px column, the heading scale and margins that go with it,
+  full-width tables, quieter block quotes, a solid rule, and code blocks
+  without a border. Both themes follow the same rules.
+* A single newline joins its paragraph instead of breaking it, which is what
+  the Markdown dialect says; a line that really ends carries two trailing
+  spaces or a `<br>`.
+
 ## 1.11
 
 * The menu bar opens on hover. Resting the pointer on **File**, **Edit** or
