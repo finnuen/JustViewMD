@@ -1988,6 +1988,29 @@
     }
   }
 
+  // Extensions a name can end in and still be a file rather than a host: a link
+  // to "README.md" is a file next to the document, a link to "example.md" is not
+  // a website.
+  var LINK_FILE_ENDING = /\.(?:md|markdown|mdx|txt|text|png|jpe?g|gif|webp|avif|svg|bmp|ico|pdf|html?|json|css|js|ts|exe|zip|7z|rar|mp[34]|mkv|wav|csv|log|ini|xml|yml|yaml)$/i;
+
+  // A bare host is how a person writes a web page - "google.com",
+  // "www.google.com/search?q=1" - and it has to be recognised before the name is
+  // taken for a file, or it would need the document to have been saved to mean
+  // anything.  The host part is what comes before the first slash, question mark
+  // or hash; a name with no dot in it, or one that ends in an extension this
+  // program knows, is still a file.
+  function looksLikeWebAddress(address) {
+    var host = String(address || '').split(/[\/?#]/)[0];
+    if (!host || host.indexOf('.') <= 0 || !/^[a-z0-9.-]+$/i.test(host)) {
+      return false;
+    }
+    if (LINK_FILE_ENDING.test(host)) {
+      return false;
+    }
+    var last = host.slice(host.lastIndexOf('.') + 1);
+    return /^[a-z]{2,24}$/i.test(last);
+  }
+
   // Any other link in the document is followed outside the window: the page is
   // the program, so letting the embedded browser navigate would replace it with
   // a web page, or with a 404 from the assets the program serves itself.  An
@@ -2002,6 +2025,10 @@
     // A drive letter looks like a scheme ("E:"), so it is told apart first.
     if (/^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[A-Za-z]:[\\/]/.test(address)) {
       postToHost({ type: 'openLink', url: address });
+      return;
+    }
+    if (looksLikeWebAddress(address)) {
+      postToHost({ type: 'openLink', url: 'https://' + address });
       return;
     }
     var path = resolveLocalPath(address);

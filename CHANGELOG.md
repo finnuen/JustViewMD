@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18
+
+* A bare web address in a link works without the document having been saved:
+  `[text](google.com)` and `[text](www.google.com/search?q=1)` open as
+  `https://...`. Before, they were taken for a file next to the document, which
+  an unsaved document cannot have, so the link only said to save first. A name
+  that ends in an extension this program knows - `README.md`, `image.png` - is
+  still a file.
+
 ## 1.17
 
 * A screenshot at the top of the README shows a selection mirrored between the

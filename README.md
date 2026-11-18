@@ -192,9 +192,10 @@ application, including its front end. Put it wherever you like and run it.
 * A link in the rendered document never loads inside the window, because the
   window is the program: an address with a scheme goes to the reader's own
   browser, a link to another document opens it in a tab, and a link to any other
-  file opens that file in whatever program owns it. A name relative to the
-  document is resolved against its folder, and a link to a file that is not
-  there says so instead of doing nothing.
+  file opens that file in whatever program owns it. A bare host is read as a web
+  address too, so `[text](google.com)` works in a document that has never been
+  saved. A name relative to the document is resolved against its folder, and a
+  link to a file that is not there says so instead of doing nothing.
 * A `<picture>` that offers one file per colour scheme is resolved against the
   theme the window is using, so the dark and the light screenshot each appear
   in their own theme. A `srcset` on an `<img>` is resolved the same way.
