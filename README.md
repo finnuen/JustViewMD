@@ -1,3 +1,5 @@
+Direct download latest: https://github.com/finnuen/JustViewMD/releases/download/1.18/JustViewMD.exe
+
 # JustViewMD
 
 **A Markdown editor and live preview for Windows in one 5 MB executable.**
