@@ -1,6 +1,6 @@
 Direct download latest
 
-Windows 10/11  :  https://github.com/finnuen/JustViewMD/releases/download/1.18/JustViewMD.exe
+Windows 10/11  :  https://github.com/finnuen/JustViewMD/releases/latest/download/JustViewMD.exe
 
 # JustViewMD
 
