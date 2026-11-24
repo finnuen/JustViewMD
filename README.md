@@ -72,7 +72,7 @@ application, including its front end. Put it wherever you like and run it.
 
 | Split view | Options menu |
 | --- | --- |
-| ![JustViewMD editing a Markdown document with the rendered preview beside it](docs/window.png) | ![The Options menu: view modes, zoom, wrapping, the picture cache size, Windows default apps and Check for update... with the version in use beside it](docs/options-menu.png) |
+| ![JustViewMD editing a Markdown document with the rendered preview beside it](docs/window.png) | ![The Options menu: view modes, zoom, wrapping, start with a blank document, the right-click menu entry, the default-app choice, dark mode, the picture cache size, Windows default apps and Check for update... with the version in use beside it](docs/options-menu.png) |
 
 ## Why JustViewMD
 
@@ -126,10 +126,10 @@ application, including its front end. Put it wherever you like and run it.
   PDF, close tab, close all tabs.
 * **Edit** - undo, redo, cut, copy, paste, select all, find, find and replace.
 * **Options** - view mode (split / editor only / preview only), zoom, line
-  wrapping, start with a blank document, set as default for
-  `.md` files, dark mode, the size of the picture cache with a row that opens
-  its folder, Windows default apps, and the update check with the version in
-  use beside it. Every switch is remembered
+  wrapping, start with a blank document, showing JustViewMD in the right-click
+  menu, set as default for `.md` files, dark mode, the size of the picture cache
+  with a row that opens its folder, Windows default apps, and the update check
+  with the version in use beside it. Every switch is remembered
   between runs. The menu stays open while its switches are flipped, so several
   can be changed in one go. The menu never removes a cached picture; it only
   tells you what is there.
@@ -263,7 +263,12 @@ application, including its front end. Put it wherever you like and run it.
 * **Explorer context menu.** `--register` adds "Open with JustViewMD" to the
   context menu of `.md`, `.markdown` and `.mdx` files below
   `HKEY_CURRENT_USER`. The first run does it automatically; `--no-register`
-  and `--unregister` opt out.
+  and `--unregister` opt out, and *Options → Show in Right-click Menu* turns it
+  on and off at any time. The entry carries a path, so a build that has been
+  moved or deleted would leave a click that opens nothing; every start repoints a
+  dead entry at the copy that is running, drops the "Open with" entries of builds
+  that are gone, and retires the old `JustViewMD.md` ProgID once nothing points
+  at it.
 * **Default application.** *Options → Set as Default for .md Files* registers
   a `JustViewMD.Document` ProgID for `.md`, `.markdown` and `.mdx`, with the
   document icon for those files and this executable for the open command.

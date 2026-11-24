@@ -204,6 +204,12 @@ constexpr wchar_t kProgId[]            = L"JustViewMD.Document";
 constexpr wchar_t kProgIdDescription[] = L"Markdown document";
 constexpr wchar_t kClassesKey[]        = L"Software\\Classes\\";
 
+// The ProgID this program used before it became JustViewMD.Document.  Keys under
+// this name are this program's own, so they can be retired when nothing points
+// at them any more; a file association or an "Open with" entry left there is a
+// click that cannot work.
+constexpr wchar_t kLegacyProgId[] = L"JustViewMD.md";
+
 // One list for both halves of the shell integration: a type this application
 // opens gets the "Open with JustViewMD" entry and can be given to it as the
 // default.  Adding a type here is the only place that has to change.
@@ -1681,14 +1687,153 @@ void RepairApplicationEntries(const std::wstring& executable) {
     ::RegCloseKey(root);
 }
 
+// Whether a registered command names an executable that is still on the disk.
+[[nodiscard]] bool CommandIsDead(const std::wstring& command) {
+    const std::wstring executable = ExecutableFromCommand(command);
+    return executable.empty() || !FileExists(executable);
+}
+
+[[nodiscard]] std::wstring UserChoiceProgId(std::wstring_view extension);
+
+[[nodiscard]] bool SameText(std::wstring_view left, std::wstring_view right) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    if (left.empty()) {
+        return true;
+    }
+    return ::CompareStringOrdinal(left.data(), static_cast<int>(left.size()), right.data(),
+                                  static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+}
+
+// Windows keeps an "Open with" entry until something removes it, and this
+// program creates one per build because the executable's name carries the
+// version.  When a build is deleted the entry stays behind, the click does
+// nothing, and Windows answers with "How do you want to open this file?".
+// Nothing but this program knows which entries are its own, so the sweep is
+// here: HKCU only, and only names that begin with JustViewMD.
+void RemoveDeadRegistrations(const std::wstring& executable) {
+    const std::wstring runningName = FileNameOf(executable);
+
+    // An Applications\<name> key whose command is missing, or points at an
+    // executable that has gone, can never launch anything.  The running
+    // executable's own entry is kept - it is repaired just before this runs.
+    std::vector<std::wstring> dead;
+    const std::wstring applications = std::wstring(kClassesKey) + L"Applications";
+    HKEY root = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, applications.c_str(), 0, KEY_READ, &root) == ERROR_SUCCESS) {
+        for (DWORD index = 0;; ++index) {
+            wchar_t name[256] = {};
+            DWORD length = ARRAYSIZE(name);
+            if (::RegEnumKeyExW(root, index, name, &length, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+                break;
+            }
+            const std::wstring entry(name, length);
+            if (!StartsWithNoCase(entry, L"justviewmd") || !EndsWithNoCase(entry, L".exe") ||
+                SameText(entry, runningName)) {
+                continue;
+            }
+            std::wstring command;
+            const bool hasCommand = ReadRegistryString(
+                HKEY_CURRENT_USER, ApplicationKeyFor(entry) + L"\\shell\\open\\command", nullptr, command);
+            if (!hasCommand || CommandIsDead(command)) {
+                dead.push_back(entry);
+            }
+        }
+        ::RegCloseKey(root);
+    }
+    for (const std::wstring& entry : dead) {
+        if (DeleteRegistryTree(HKEY_CURRENT_USER, ApplicationKeyFor(entry))) {
+            DebugLog(L"Removed the dead Open with entry for " + entry);
+        }
+    }
+
+    // The old ProgID.  If the user's own choice still names it, it is repaired
+    // instead of removed: UserChoice is their record, and it cannot be rewritten
+    // from here.  Otherwise nothing points at it, so it goes.
+    const std::wstring legacyKey = ClassesKeyFor(kLegacyProgId);
+    if (RegistryKeyExists(HKEY_CURRENT_USER, legacyKey)) {
+        bool chosen = false;
+        for (const wchar_t* extension : kDocumentExtensions) {
+            if (SameText(UserChoiceProgId(extension), kLegacyProgId)) {
+                chosen = true;
+                break;
+            }
+        }
+        if (chosen) {
+            std::wstring command;
+            const std::wstring commandKey = legacyKey + L"\\shell\\open\\command";
+            if (ReadRegistryString(HKEY_CURRENT_USER, commandKey, nullptr, command) &&
+                CommandIsDead(command)) {
+                (void)WriteRegistryString(HKEY_CURRENT_USER, commandKey, nullptr,
+                                          L"\"" + executable + L"\" \"%1\"");
+            }
+        } else {
+            for (const wchar_t* extension : kDocumentExtensions) {
+                (void)DeleteRegistryValue(HKEY_CURRENT_USER,
+                                          ClassesKeyFor(extension) + L"\\OpenWithProgids", kLegacyProgId);
+            }
+            if (DeleteRegistryTree(HKEY_CURRENT_USER, legacyKey)) {
+                DebugLog(L"Removed the retired ProgID " + std::wstring(kLegacyProgId));
+            }
+        }
+    }
+
+    // Explorer's per-extension "Open with" list remembers executable *names*.
+    // A name whose entry has just gone cannot run, so it is dropped and the MRU
+    // order is rewritten without its letter.
+    const std::wstring fileExts =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\";
+    for (const wchar_t* extension : kDocumentExtensions) {
+        std::wstring listKey = fileExts;
+        listKey += extension;
+        listKey += L"\\OpenWithList";
+        if (!RegistryKeyExists(HKEY_CURRENT_USER, listKey)) {
+            continue;
+        }
+        std::wstring order;
+        (void)ReadRegistryString(HKEY_CURRENT_USER, listKey, L"MRUList", order);
+        std::wstring kept;
+        for (const wchar_t letter : order) {
+            const wchar_t valueName[2] = { letter, L'\0' };
+            std::wstring entry;
+            if (!ReadRegistryString(HKEY_CURRENT_USER, listKey, valueName, entry) || entry.empty()) {
+                kept += letter;  // unreadable: someone else's, left alone
+                continue;
+            }
+            if (StartsWithNoCase(entry, L"justviewmd") && EndsWithNoCase(entry, L".exe") &&
+                !RegistryKeyExists(HKEY_CURRENT_USER, ApplicationKeyFor(entry))) {
+                (void)DeleteRegistryValue(HKEY_CURRENT_USER, listKey, valueName);
+                continue;
+            }
+            kept += letter;
+        }
+        if (kept != order) {
+            (void)WriteRegistryString(HKEY_CURRENT_USER, listKey, L"MRUList", kept);
+        }
+    }
+}
+
 void RefreshDocumentIcons() {
     const std::wstring executable = ExePath();
     if (executable.empty()) {
         return;
     }
     const std::wstring icon = DocumentIconValue(executable);
-    (void)WriteRegistryString(HKEY_CURRENT_USER, ApplicationKeyFor(FileNameOf(executable)) + L"\\DefaultIcon",
-                              nullptr, icon);
+    const std::wstring ownKey = ApplicationKeyFor(FileNameOf(executable));
+    (void)WriteRegistryString(HKEY_CURRENT_USER, ownKey + L"\\DefaultIcon", nullptr, icon);
+    // An entry with an icon and no command is one the shell cannot launch, and
+    // it is what this program used to leave behind for every build.  Give the
+    // running copy a command of its own; a live one is never overwritten.
+    {
+        std::wstring command;
+        const std::wstring commandKey = ownKey + L"\\shell\\open\\command";
+        if (!ReadRegistryString(HKEY_CURRENT_USER, commandKey, nullptr, command) ||
+            CommandIsDead(command)) {
+            (void)WriteRegistryString(HKEY_CURRENT_USER, commandKey, nullptr,
+                                      L"\"" + executable + L"\" \"%1\"");
+        }
+    }
     // The ProgID's icon follows the running executable, but only once the
     // ProgID exists: starting the program must not create a file type.
     const std::wstring progIdKey = ClassesKeyFor(kProgId);
@@ -1705,6 +1850,28 @@ void RefreshDocumentIcons() {
         }
     }
     RepairApplicationEntries(executable);
+    RemoveDeadRegistrations(executable);
+
+    // The Explorer menu entry carries the path of the copy that created it, and
+    // registration only happens on the first run - so a build that has since
+    // been moved or deleted leaves an entry whose click goes nowhere, and
+    // Windows answers with "How do you want to open this file?".  A live path is
+    // left alone; a dead one is pointed at the copy that is running now.
+    for (const wchar_t* extension : kDocumentExtensions) {
+        const std::wstring verbKey = ShellVerbKey(extension);
+        if (!RegistryKeyExists(HKEY_CURRENT_USER, verbKey)) {
+            continue;  // not registered: starting the program must not add it
+        }
+        std::wstring command;
+        const std::wstring commandKey = verbKey + L"\\command";
+        if (!ReadRegistryString(HKEY_CURRENT_USER, commandKey, nullptr, command) ||
+            CommandIsDead(command)) {
+            (void)WriteRegistryString(HKEY_CURRENT_USER, commandKey, nullptr,
+                                      L"\"" + executable + L"\" \"%1\"");
+            (void)WriteRegistryString(HKEY_CURRENT_USER, verbKey, L"Icon",
+                                      L"\"" + executable + L"\",0");
+        }
+    }
 }
 
 // Writes the ProgID, its icon (the document icon in this executable) and its
@@ -1871,6 +2038,7 @@ struct App {
     bool darkMode = true;
     bool startBlank = false;           // no welcome document on start
     bool wrapLines = true;
+    bool shellMenu = true;             // "Open with JustViewMD" in Explorer
     std::vector<std::wstring> sessionPaths;  // files to reopen, in tab order
     std::wstring sessionActive;              // the tab that was active
     unsigned long long tabGeneration = 0;    // bumped by every SendTabList
@@ -1979,6 +2147,8 @@ std::wstring g_lastDirectory;
     text += g_app.startBlank ? "1" : "0";
     text += "\r\ncheckForUpdate=";
     text += g_app.checkForUpdate ? "1" : "0";
+    text += "\r\nshellMenu=";
+    text += g_app.shellMenu ? "1" : "0";
     text += "\r\n\r\n; The files reopened on the next start, one per line, in tab\r\n";
     text += "; order.  A file named on the command line joins them.\r\n";
     for (const std::wstring& path : g_app.sessionPaths) {
@@ -2036,6 +2206,10 @@ void ApplySettingsText(std::wstring_view text) {
         } else if (EqualsIgnoringCase(key, L"checkForUpdate")) {
             if (ParseBoolean(value, flag)) {
                 g_app.checkForUpdate = flag;
+            }
+        } else if (EqualsIgnoringCase(key, L"shellMenu")) {
+            if (ParseBoolean(value, flag)) {
+                g_app.shellMenu = flag;
             }
         } else if (EqualsIgnoringCase(key, L"sessionOpen")) {
             if (!value.empty()) {
@@ -3261,6 +3435,8 @@ void SendOptionsToWeb() {
     message += g_app.wrapLines ? L"true" : L"false";
     message += L",\"defaultApp\":";
     message += IsDefaultApplication() ? L"true" : L"false";
+    message += L",\"shellMenu\":";
+    message += g_app.shellMenu ? L"true" : L"false";
     // The window title carries the version, and the About dialog repeats it:
     // the release is downloaded as JustViewMD.exe, so nothing else on screen
     // says which build is running.
@@ -4785,6 +4961,16 @@ void ApplyOptionFromPage(const std::wstring& name, const std::wstring& value) {
         g_app.startBlank = flag;
     } else if (name == L"wrap") {
         g_app.wrapLines = flag;
+    } else if (name == L"shellMenu") {
+        // The Explorer entry is the registration itself, not a flag Windows
+        // reads: hiding it means removing the keys, and showing it means
+        // writing them again for every extension.
+        g_app.shellMenu = flag;
+        if (flag) {
+            (void)RegisterShellIntegration(false);
+        } else {
+            (void)UnregisterShellIntegration();
+        }
     } else {
         return;
     }
@@ -5832,6 +6018,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previousInstan
     }
 
     if (wantRegister || wantUnregister) {
+        // The setting is what the next GUI start reads, so the command line
+        // writes it too; the rest of the file is loaded first so that saving it
+        // keeps every other option.
+        LoadOptions();
+        g_app.shellMenu = !wantUnregister;
+        SaveOptions();
         if (wantUnregister) {
             // Everything this application can register, so that "unregister"
             // really leaves Windows the way it was found.
@@ -5879,8 +6071,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previousInstan
     LoadOptions();
 
     // First run: make right-clicking a .md file in Explorer work out of the box.
-    if (!skipAutoRegister && !IsShellIntegrationRegistered()) {
-        (void)RegisterShellIntegration(true);
+    // The option in the Options menu turns the same registration on and off, so
+    // a setting changed outside the window is applied here as well.
+    if (!skipAutoRegister) {
+        if (g_app.shellMenu && !IsShellIntegrationRegistered()) {
+            (void)RegisterShellIntegration(true);
+        } else if (!g_app.shellMenu && IsShellIntegrationRegistered()) {
+            (void)UnregisterShellIntegration();
+        }
     }
     // Not an option, and not part of the first run: the program's badge belongs
     // to the program and the document icon to the documents, whichever copy of

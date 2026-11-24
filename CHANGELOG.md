@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.20
+
+* *Options → Show in Right-click Menu* turns the Explorer entry on and off. It is
+  the same registration the first run writes, so switching it off removes the
+  keys and switching it on writes them again for `.md`, `.markdown` and `.mdx`;
+  the choice is kept in `settings.ini` as `shellMenu`, and `--register` and
+  `--unregister` set it too.
+
+## 1.19
+
+* The right-click entry works again, and the program keeps its own registrations
+  tidy on every start. A menu entry keeps the path of the copy that created it,
+  so a build that was moved or deleted left a click that opened nothing - Windows
+  answered it with "How do you want to open this file?" - and the ProgID from
+  before the rename still named a `C:` path that no longer exists. Now a dead
+  command is pointed at the running executable, "Open with" entries that can
+  never launch anything are removed, the retired `JustViewMD.md` ProgID is
+  deleted once nothing points at it, and Explorer's list of old executable names
+  is pruned with it.
+
 ## 1.18
 
 * A bare web address in a link works without the document having been saved:

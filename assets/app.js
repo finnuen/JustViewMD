@@ -136,7 +136,8 @@
       dark: true,
       startBlank: false,
       wrap: true,
-      defaultApp: false
+      defaultApp: false,
+      shellMenu: true          // "Open with JustViewMD" in Explorer
     }
   };
 
@@ -4780,6 +4781,9 @@ function collapseTabs(keep) {
     if (typeof data.defaultApp === 'boolean') {
       settings.defaultApp = data.defaultApp;
     }
+    if (typeof data.shellMenu === 'boolean') {
+      settings.shellMenu = data.shellMenu;
+    }
     if (typeof data.version === 'string') {
       appVersion = data.version;
       if (!aboutDialog.hidden) {
@@ -4872,6 +4876,17 @@ function collapseTabs(keep) {
 
   function setDefaultApp(value) {
     postToHost({ type: 'setDefaultApp', value: Boolean(value) });
+  }
+
+  // The Explorer entry for .md files, which the host adds and removes through
+  // the same registration the first run uses.  The checkbox follows the click;
+  // a failure shows its own message box from the host.
+  function setShellMenu(value) {
+    state.settings.shellMenu = Boolean(value);
+    postSetting('shellMenu', state.settings.shellMenu ? 1 : 0);
+    showToast(state.settings.shellMenu
+      ? 'Added "Open with JustViewMD" to the right-click menu'
+      : 'Removed JustViewMD from the right-click menu', false);
   }
 
   function applyDefaultAppState(data) {
@@ -5140,6 +5155,8 @@ function collapseTabs(keep) {
     items.push({ separator: true });
     items.push({ label: 'Start with Blank', checked: settings.startBlank,
       action: function () { setStartBlank(!settings.startBlank); } });
+    items.push({ label: 'Show in Right-click Menu', checked: settings.shellMenu,
+      action: function () { setShellMenu(!settings.shellMenu); } });
     items.push({ label: 'Set as Default for .md Files', checked: settings.defaultApp,
       action: function () { setDefaultApp(!settings.defaultApp); } });
     items.push({ label: 'Dark Mode', checked: settings.dark,
